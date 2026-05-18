@@ -6,7 +6,7 @@ const modules = [
     icon: '📋',
     title: 'Follow Up Leads',
     description: 'Track and manage your sales leads and follow-up tasks.',
-    color: 'from-green-500 to-green-700',
+    accent: 'bg-brand-mint',
     badge: 'Coming Soon',
   },
   {
@@ -14,7 +14,7 @@ const modules = [
     icon: '🧮',
     title: 'Calculator Proposal',
     description: 'Calculate monthly repayment values for photocopier machine leasing.',
-    color: 'from-blue-500 to-blue-700',
+    accent: 'bg-brand-mint',
     badge: null,
   },
   {
@@ -22,7 +22,7 @@ const modules = [
     icon: '📖',
     title: 'Photocopier Catalogue',
     description: 'Browse the full range of photocopier machines available.',
-    color: 'from-purple-500 to-purple-700',
+    accent: 'bg-brand-mint',
     badge: 'Coming Soon',
   },
 ]
@@ -30,30 +30,36 @@ const modules = [
 export default function Home() {
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-800">Welcome to AlignPlus CRM</h1>
-        <p className="text-slate-500 mt-1">Select a module to get started.</p>
+      <div className="mb-10">
+        <img
+          src="/images/align-plus-logo-full.png"
+          alt="AlignPlus"
+          className="h-12 w-auto mb-4"
+        />
+        <h1 className="text-2xl font-semibold text-brand-charcoal">Sales CRM</h1>
+        <p className="text-slate-400 mt-1 text-sm">Select a module to get started.</p>
       </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {modules.map(m => (
           <Link
             key={m.to}
             to={m.to}
-            className="group relative bg-white rounded-2xl shadow-md hover:shadow-xl transition-shadow overflow-hidden border border-slate-200"
+            className="group bg-white rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden border border-slate-200 hover:border-brand-mint"
           >
-            <div className={`h-2 w-full bg-gradient-to-r ${m.color}`} />
+            <div className={`h-1.5 w-full ${m.accent}`} />
             <div className="p-6">
-              <div className="text-4xl mb-3">{m.icon}</div>
-              <div className="flex items-center gap-2 mb-1">
-                <h2 className="text-xl font-bold text-slate-800">{m.title}</h2>
+              <div className="text-4xl mb-4">{m.icon}</div>
+              <div className="flex items-center gap-2 mb-2">
+                <h2 className="text-lg font-semibold text-brand-charcoal">{m.title}</h2>
                 {m.badge && (
-                  <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">
+                  <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">
                     {m.badge}
                   </span>
                 )}
               </div>
-              <p className="text-slate-500 text-sm">{m.description}</p>
-              <div className="mt-4 text-blue-600 text-sm font-medium group-hover:underline">
+              <p className="text-slate-400 text-sm leading-relaxed">{m.description}</p>
+              <div className="mt-5 text-brand-mint-dark text-sm font-semibold group-hover:underline">
                 Open →
               </div>
             </div>
