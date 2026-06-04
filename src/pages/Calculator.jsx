@@ -20,7 +20,30 @@ const MACHINE_CATALOGUE = {
   ],
 }
 
-function SectionCard({ title, children }) {
+function SectionCard({ title, children, collapsible = false, open, onToggle, summary }) {
+  if (collapsible) {
+    return (
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 mb-5 overflow-hidden">
+        <button
+          onClick={onToggle}
+          className="w-full flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors"
+        >
+          <h2 className="text-base font-semibold text-brand-charcoal">{title}</h2>
+          <div className="flex items-center gap-3">
+            {!open && summary && (
+              <span className="text-sm font-semibold text-brand-mint-dark">{summary}</span>
+            )}
+            <span className="text-slate-400 text-sm">{open ? '▲' : '▼'}</span>
+          </div>
+        </button>
+        {open && (
+          <div className="px-6 pb-6 border-t border-slate-100 pt-4">
+            {children}
+          </div>
+        )}
+      </div>
+    )
+  }
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-5">
       <h2 className="text-base font-semibold text-brand-charcoal mb-4 pb-2 border-b border-slate-100">
@@ -121,20 +144,33 @@ export default function Calculator() {
 
   // --- Profit ---
   const [monthlyRepayment, setMonthlyRepayment] = useState('')
+  const [residualPct, setResidualPct] = useState(25)
 
   // --- Client Profile ---
   const [showClientProfile, setShowClientProfile] = useState(false)
-  const [clientMachine, setClientMachine] = useState('')
-  const [clientOwnership, setClientOwnership] = useState('lease')
-  const [clientPurchaseCost, setClientPurchaseCost] = useState('')
-  const [clientYears, setClientYears] = useState('')
+  const [clientMachines, setClientMachines] = useState([
+    { id: 1, name: '', ownership: 'lease', purchaseCost: '', years: '5', monthlyLease: '', monthsLeft: '', finalPayment: '' }
+  ])
   const [clientBwUnits, setClientBwUnits] = useState('')
   const [clientBwCost, setClientBwCost] = useState('')
   const [clientColorUnits, setClientColorUnits] = useState('')
   const [clientColorCost, setClientColorCost] = useState('')
 
+  const addClientMachine = () => setClientMachines(prev => [
+    ...prev,
+    { id: Date.now(), name: '', ownership: 'lease', purchaseCost: '', years: '5', monthlyLease: '', monthsLeft: '', finalPayment: '' }
+  ])
+  const removeClientMachine = (id) => setClientMachines(prev => prev.filter(m => m.id !== id))
+  const updateClientMachine = (id, field, value) => setClientMachines(prev =>
+    prev.map(m => m.id === id ? { ...m, [field]: value } : m)
+  )
+
   // --- Comparison ---
   const [showComparison, setShowComparison] = useState(false)
+
+  // --- Collapsible sections ---
+  const [showGrandTotal, setShowGrandTotal] = useState(false)
+  const [showLeasing, setShowLeasing] = useState(false)
 
   const handleCopierToggle = (type) => {
     setCopierType(type)
@@ -142,12 +178,19 @@ export default function Calculator() {
     setColorCost(COPIER_PRESETS[type].colorCost)
   }
 
+  const totalClientOutstanding = useMemo(() => {
+    return clientMachines.reduce((sum, m) => {
+      return sum + (parseFloat(m.finalPayment) || 0) + (parseFloat(m.monthlyLease) || 0) * (parseFloat(m.monthsLeft) || 0)
+    }, 0)
+  }, [clientMachines])
+
   const outstanding = useMemo(() => {
+    if (totalClientOutstanding > 0) return totalClientOutstanding
     const lease = parseFloat(monthlyLease) || 0
     const months = parseFloat(monthsLeft) || 0
     const final = parseFloat(outstandingFinal) || 0
     return final + lease * months
-  }, [monthlyLease, monthsLeft, outstandingFinal])
+  }, [totalClientOutstanding, monthlyLease, monthsLeft, outstandingFinal])
 
   const printCharges = useMemo(() => {
     const bw = (parseFloat(bwCost) || 0) * (parseFloat(bwUnits) || 0)
@@ -167,7 +210,7 @@ export default function Calculator() {
     return (parseFloat(monthlyRepayment) || 0) * 60
   }, [monthlyRepayment])
 
-  const residualValue = useMemo(() => financeAmt * 0.25, [financeAmt])
+  const residualValue = useMemo(() => financeAmt * (residualPct / 100), [financeAmt, residualPct])
 
   const profit = useMemo(() => financeAmt - grandTotal, [financeAmt, grandTotal])
 
@@ -201,7 +244,7 @@ export default function Calculator() {
 
   const clientBwMonthly = (parseFloat(clientBwUnits) || 0) * 30
   const clientColorMonthly = (parseFloat(clientColorUnits) || 0) * 30
-  const hasClientProfile = clientMachine || clientBwUnits || clientColorUnits || clientPurchaseCost
+  const hasClientProfile = clientMachines.some(m => m.name || m.purchaseCost || m.monthlyLease) || clientBwUnits || clientColorUnits
 
   const clientMonthlyPrintCost = useMemo(() => {
     return (parseFloat(clientBwCost) || 0) * (parseFloat(clientBwUnits) || 0) +
@@ -209,14 +252,16 @@ export default function Calculator() {
   }, [clientBwCost, clientBwUnits, clientColorCost, clientColorUnits])
 
   const currentMonthlyCost = useMemo(() => {
-    if (clientOwnership === 'purchase') {
-      const years = parseFloat(clientYears) || 0
-      const pc = parseFloat(clientPurchaseCost) || 0
-      const monthlyDepreciation = years > 0 ? pc / (years * 12) : 0
-      return monthlyDepreciation + clientMonthlyPrintCost
-    }
-    return (parseFloat(monthlyLease) || 0) + clientMonthlyPrintCost
-  }, [clientOwnership, clientPurchaseCost, clientYears, monthlyLease, clientMonthlyPrintCost])
+    const machineCosts = clientMachines.reduce((sum, m) => {
+      if (m.ownership === 'purchase') {
+        const years = parseFloat(m.years) || 5
+        const cost = parseFloat(m.purchaseCost) || 0
+        return sum + (cost / (years * 12))
+      }
+      return sum + (parseFloat(m.monthlyLease) || 0)
+    }, 0)
+    return machineCosts + clientMonthlyPrintCost
+  }, [clientMachines, clientMonthlyPrintCost])
 
   const newMonthlyCost = useMemo(() => {
     return rebateSavingPerMonth > 0 ? netCostPerMonth : (parseFloat(monthlyRepayment) || 0)
@@ -249,6 +294,23 @@ export default function Calculator() {
   // Profit at recommended monthly (using leasing period)
   const recommendedProfit = recommendedMonthly * leasingPeriod - grandTotal
 
+  // --- Ceiling + Rebate scenario (when quote is unprofitable) ---
+  // Push monthly to ceiling, then calculate rebate needed to still give client 25% saving
+  const grandTotalExRebate = grandTotal - Math.abs(parseFloat(rebate) || 0)
+  const ceilMonthly = repaymentCeiling
+  // Rebate per month needed: ceiling − (client cost × 75%)
+  const ceilRebatePerMonth = currentMonthlyCost > 0
+    ? Math.max(0, ceilMonthly - currentMonthlyCost * 0.75)
+    : 0
+  const ceilRebateTotal = ceilRebatePerMonth * 30
+  // Grand total with this recommended rebate (swap out existing rebate for the new one)
+  const ceilGrandTotal = grandTotalExRebate + ceilRebateTotal
+  const ceilProfit = ceilMonthly * leasingPeriod - ceilGrandTotal
+  const ceilClientNetCost = ceilMonthly - ceilRebatePerMonth
+  const ceilSavingPct = currentMonthlyCost > 0
+    ? ((currentMonthlyCost - ceilClientNetCost) / currentMonthlyCost) * 100
+    : null
+
   return (
     <div>
       {/* Client Profile Drawer */}
@@ -273,79 +335,139 @@ export default function Calculator() {
             </div>
 
             <div className="p-6 space-y-6">
-              {/* Current Machine */}
+              {/* Client Machines — multiple */}
               <div>
-                <label className="block text-sm font-semibold text-slate-600 mb-1">Current Machine</label>
-                <input
-                  type="text"
-                  value={clientMachine}
-                  onChange={e => setClientMachine(e.target.value)}
-                  placeholder="e.g. Konica 458, Ricoh 2501..."
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-mint"
-                />
-              </div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-slate-600">Client's Machines</p>
+                  <button
+                    onClick={addClientMachine}
+                    className="flex items-center gap-1 px-3 py-1 rounded-lg bg-brand-mint text-white text-xs font-semibold hover:bg-brand-mint-dark transition-colors"
+                  >
+                    + Add Machine
+                  </button>
+                </div>
 
-              {/* Ownership Type */}
-              <div>
-                <p className="text-sm font-semibold text-slate-600 mb-2">Machine Ownership</p>
-                <div className="flex gap-2">
-                  {[{ key: 'lease', label: 'Leased' }, { key: 'purchase', label: 'Purchased' }].map(o => (
-                    <button
-                      key={o.key}
-                      onClick={() => setClientOwnership(o.key)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                        clientOwnership === o.key
-                          ? 'bg-brand-charcoal text-white border-brand-charcoal'
-                          : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-                      }`}
-                    >
-                      {o.label}
-                    </button>
+                <div className="space-y-4">
+                  {clientMachines.map((m, idx) => (
+                    <div key={m.id} className="border border-slate-200 rounded-xl overflow-hidden">
+                      <div className="bg-slate-50 px-3 py-2 flex items-center justify-between">
+                        <span className="text-xs font-semibold text-slate-500">Machine {idx + 1}</span>
+                        {clientMachines.length > 1 && (
+                          <button
+                            onClick={() => removeClientMachine(m.id)}
+                            className="text-xs text-red-400 hover:text-red-600"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      <div className="p-3 space-y-3">
+                        {/* Name */}
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">Machine Name</label>
+                          <input
+                            type="text"
+                            value={m.name}
+                            onChange={e => updateClientMachine(m.id, 'name', e.target.value)}
+                            placeholder="e.g. Konica 458, Ricoh 2501..."
+                            className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-mint"
+                          />
+                        </div>
+
+                        {/* Ownership toggle */}
+                        <div className="flex gap-2">
+                          {[{ key: 'lease', label: 'Leased' }, { key: 'purchase', label: 'Purchased' }].map(o => (
+                            <button
+                              key={o.key}
+                              onClick={() => updateClientMachine(m.id, 'ownership', o.key)}
+                              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                                m.ownership === o.key
+                                  ? 'bg-brand-charcoal text-white border-brand-charcoal'
+                                  : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                              }`}
+                            >
+                              {o.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Purchase: price + years */}
+                        {m.ownership === 'purchase' && (
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-1">Purchase Price ($)</label>
+                              <NumInput value={m.purchaseCost} onChange={v => updateClientMachine(m.id, 'purchaseCost', v)} prefix="$" placeholder="8000" />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-1">Years in Use</label>
+                              <NumInput value={m.years} onChange={v => updateClientMachine(m.id, 'years', v)} placeholder="5" />
+                            </div>
+                            {m.purchaseCost && (
+                              <div className="col-span-2 bg-brand-mint-light border border-brand-mint rounded-lg px-3 py-1.5 text-xs text-brand-mint-dark">
+                                Monthly depreciation: {fmt((parseFloat(m.purchaseCost) || 0) / ((parseFloat(m.years) || 5) * 12))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Outstanding fields — required for lease, optional for purchase */}
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold text-slate-400 uppercase">
+                            {m.ownership === 'lease' ? 'Outstanding' : 'Outstanding (if any)'}
+                          </p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-1">Monthly Lease ($)</label>
+                              <NumInput value={m.monthlyLease} onChange={v => updateClientMachine(m.id, 'monthlyLease', v)} prefix="$" placeholder="200" />
+                            </div>
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-1">Months Remaining</label>
+                              <NumInput value={m.monthsLeft} onChange={v => updateClientMachine(m.id, 'monthsLeft', v)} placeholder="23" />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">Outstanding Final Payment ($)</label>
+                            <NumInput value={m.finalPayment} onChange={v => updateClientMachine(m.id, 'finalPayment', v)} prefix="$" placeholder="3000" />
+                          </div>
+                          {(m.monthlyLease || m.monthsLeft || m.finalPayment) && (
+                            <div className="bg-slate-50 rounded-lg px-3 py-1.5 text-xs text-slate-500 flex justify-between">
+                              <span>Machine outstanding</span>
+                              <span className="font-semibold text-slate-700">
+                                {fmt((parseFloat(m.finalPayment)||0) + (parseFloat(m.monthlyLease)||0) * (parseFloat(m.monthsLeft)||0))}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   ))}
                 </div>
 
-                {clientOwnership === 'purchase' && (
-                  <div className="mt-3 space-y-3">
-                    <div>
-                      <label className="block text-xs text-slate-500 mb-1">Purchase Price ($)</label>
-                      <NumInput value={clientPurchaseCost} onChange={setClientPurchaseCost} prefix="$" placeholder="8000" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-500 mb-1">Years in Use</label>
-                      <NumInput value={clientYears} onChange={setClientYears} placeholder="3" />
-                    </div>
-                    {clientPurchaseCost && clientYears && (
-                      <div className="bg-brand-mint-light border border-brand-mint rounded-lg px-3 py-2 text-xs text-brand-mint-dark">
-                        Monthly depreciation: {fmt((parseFloat(clientPurchaseCost) || 0) / ((parseFloat(clientYears) || 1) * 12))}
-                      </div>
-                    )}
+                {/* Total machine monthly cost */}
+                {clientMachines.some(m => m.purchaseCost || m.monthlyLease) && (
+                  <div className="mt-3 bg-slate-50 rounded-lg px-3 py-2 text-xs text-slate-500 flex justify-between">
+                    <span>Combined machine monthly cost</span>
+                    <span className="font-semibold text-slate-700">
+                      {fmt(clientMachines.reduce((sum, m) => {
+                        if (m.ownership === 'purchase') return sum + (parseFloat(m.purchaseCost) || 0) / ((parseFloat(m.years) || 5) * 12)
+                        return sum + (parseFloat(m.monthlyLease) || 0)
+                      }, 0))}
+                    </span>
                   </div>
                 )}
-              </div>
 
-              {/* Current Outstanding — shares main calculator state */}
-              <div>
-                <p className="text-sm font-semibold text-slate-600 mb-3">
-                  {clientOwnership === 'lease' ? 'Current Outstanding' : 'Lease Outstanding (if any)'}
-                </p>
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">Monthly Lease ($)</label>
-                    <NumInput value={monthlyLease} onChange={setMonthlyLease} prefix="$" placeholder="200" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-slate-500 mb-1">Months Remaining</label>
-                    <NumInput value={monthsLeft} onChange={setMonthsLeft} placeholder="23" />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">Outstanding Final Payment ($)</label>
-                  <NumInput value={outstandingFinal} onChange={setOutstandingFinal} prefix="$" placeholder="3000" />
-                </div>
-                <div className="bg-slate-50 rounded-lg px-3 py-2 mt-2 text-xs text-slate-500 flex justify-between">
-                  <span>Total Outstanding</span>
-                  <span className="font-semibold text-slate-700">{fmt(outstanding)}</span>
-                </div>
+                {/* Total outstanding across all machines */}
+                {(() => {
+                  const totalOutstanding = clientMachines.reduce((sum, m) => {
+                    return sum + (parseFloat(m.finalPayment) || 0) + (parseFloat(m.monthlyLease) || 0) * (parseFloat(m.monthsLeft) || 0)
+                  }, 0)
+                  return totalOutstanding > 0 ? (
+                    <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs flex justify-between">
+                      <span className="text-amber-700 font-semibold">Total Outstanding (all machines)</span>
+                      <span className="font-bold text-amber-800">{fmt(totalOutstanding)}</span>
+                    </div>
+                  ) : null
+                })()}
               </div>
 
               {/* Current Print Volume */}
@@ -431,41 +553,106 @@ export default function Calculator() {
         <div>
           {/* 1. Outstanding */}
           <SectionCard title="1. Current Outstanding">
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Monthly Lease ($)">
-                <NumInput value={monthlyLease} onChange={setMonthlyLease} prefix="$" placeholder="200" />
-              </Field>
-              <Field label="Months Remaining">
-                <NumInput value={monthsLeft} onChange={setMonthsLeft} placeholder="23" />
-              </Field>
-            </div>
-            <Field label="Outstanding Final Payment ($)">
-              <NumInput value={outstandingFinal} onChange={setOutstandingFinal} prefix="$" placeholder="3000" />
-            </Field>
-            <div className="bg-slate-50 rounded-lg px-4 py-3 mt-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-500">Remaining Lease</span>
-                <span className="font-medium text-slate-700">
-                  {fmt((parseFloat(monthlyLease) || 0) * (parseFloat(monthsLeft) || 0))}
-                </span>
+            {totalClientOutstanding > 0 ? (
+              /* Auto-populated from Client Setup */
+              <div>
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="text-xs bg-brand-mint-light text-brand-mint-dark font-semibold px-2 py-0.5 rounded-full">
+                    👤 From Client Setup
+                  </span>
+                  <span className="text-xs text-slate-400">auto-calculated from machines</span>
+                </div>
+                <div className="border border-slate-200 rounded-xl overflow-hidden mb-3">
+                  <div className="bg-slate-50 px-4 py-2 border-b border-slate-200">
+                    <p className="text-xs font-semibold text-slate-500 uppercase">Per Machine Breakdown</p>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {clientMachines.map((m, idx) => {
+                      const machineOutstanding = (parseFloat(m.finalPayment) || 0) + (parseFloat(m.monthlyLease) || 0) * (parseFloat(m.monthsLeft) || 0)
+                      if (machineOutstanding === 0) return null
+                      return (
+                        <div key={m.id} className="px-4 py-2.5 flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-slate-700">{m.name || `Machine ${idx + 1}`}</p>
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              {m.monthlyLease && m.monthsLeft
+                                ? `${fmt(m.monthlyLease)}/mo × ${m.monthsLeft} mo`
+                                : ''}
+                              {m.finalPayment ? ` + ${fmt(m.finalPayment)} final` : ''}
+                            </p>
+                          </div>
+                          <span className="text-sm font-semibold text-slate-700">{fmt(machineOutstanding)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex justify-between items-center">
+                  <span className="text-sm font-semibold text-amber-700">Total Outstanding</span>
+                  <span className="text-lg font-bold text-amber-800">{fmt(totalClientOutstanding)}</span>
+                </div>
               </div>
-              <div className="flex justify-between text-sm mt-1">
-                <span className="text-slate-500">Final Payment</span>
-                <span className="font-medium text-slate-700">{fmt(outstandingFinal)}</span>
+            ) : (
+              /* Manual entry fallback */
+              <div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Monthly Lease ($)">
+                    <NumInput value={monthlyLease} onChange={setMonthlyLease} prefix="$" placeholder="200" />
+                  </Field>
+                  <Field label="Months Remaining">
+                    <NumInput value={monthsLeft} onChange={setMonthsLeft} placeholder="23" />
+                  </Field>
+                </div>
+                <Field label="Outstanding Final Payment ($)">
+                  <NumInput value={outstandingFinal} onChange={setOutstandingFinal} prefix="$" placeholder="3000" />
+                </Field>
+                <div className="bg-slate-50 rounded-lg px-4 py-3 mt-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Remaining Lease</span>
+                    <span className="font-medium text-slate-700">
+                      {fmt((parseFloat(monthlyLease) || 0) * (parseFloat(monthsLeft) || 0))}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm mt-1">
+                    <span className="text-slate-500">Final Payment</span>
+                    <span className="font-medium text-slate-700">{fmt(outstandingFinal)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-semibold border-t border-slate-200 mt-2 pt-2">
+                    <span className="text-slate-700">Total Outstanding</span>
+                    <span className="text-brand-mint-dark">{fmt(outstanding)}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mt-2">
+                  💡 Fill in <strong>Client's Current Setup</strong> to auto-populate from machine data.
+                </p>
               </div>
-              <div className="flex justify-between text-sm font-semibold border-t border-slate-200 mt-2 pt-2">
-                <span className="text-slate-700">Total Outstanding</span>
-                <span className="text-brand-mint-dark">{fmt(outstanding)}</span>
-              </div>
-            </div>
+            )}
           </SectionCard>
 
           {/* 2. Machine Cost */}
           <SectionCard title="2. Machine Cost">
-            {clientMachine && (
-              <div className="flex items-center gap-2 mb-3 text-xs text-brand-mint-dark bg-brand-mint-light border border-brand-mint rounded-lg px-3 py-2">
-                <span>👤 Client currently uses:</span>
-                <span className="font-semibold">{clientMachine}</span>
+            {clientMachines.some(m => m.name) && (
+              <div className="mb-4 bg-brand-mint-light border border-brand-mint rounded-xl overflow-hidden">
+                <div className="px-3 py-2 bg-brand-mint/20">
+                  <p className="text-xs font-semibold text-brand-mint-dark">👤 Client's Current Machines</p>
+                </div>
+                <div className="divide-y divide-brand-mint/30">
+                  {clientMachines.filter(m => m.name).map(m => (
+                    <div key={m.id} className="px-3 py-2 flex items-center justify-between">
+                      <span className="text-sm font-medium text-brand-charcoal">{m.name}</span>
+                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                        <span className={`px-2 py-0.5 rounded-full font-medium ${m.ownership === 'purchase' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'}`}>
+                          {m.ownership === 'purchase' ? 'Purchased' : 'Leased'}
+                        </span>
+                        <span>
+                          {m.ownership === 'purchase'
+                            ? fmt((parseFloat(m.purchaseCost) || 0) / ((parseFloat(m.years) || 5) * 12)) + '/mo'
+                            : fmt(m.monthlyLease) + '/mo'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             <div className="flex gap-2 mb-4">
@@ -646,7 +833,7 @@ export default function Calculator() {
 
         <div>
           {/* Grand Total Summary */}
-          <SectionCard title="6. Grand Total Summary">
+          <SectionCard title="6. Grand Total Summary" collapsible open={showGrandTotal} onToggle={() => setShowGrandTotal(v => !v)} summary={fmt(grandTotal)}>
             <ResultRow label="Machine Cost" value={fmt(machineCost)} />
             <ResultRow label="Total Outstanding" value={fmt(outstanding)} />
 
@@ -682,7 +869,7 @@ export default function Calculator() {
           </SectionCard>
 
           {/* Leasing Calculator */}
-          <SectionCard title="7. Leasing Repayment Calculator">
+          <SectionCard title="7. Leasing Repayment Calculator" collapsible open={showLeasing} onToggle={() => setShowLeasing(v => !v)} summary={grandTotal > 0 ? `${fmt(leasingMonthly)}/mo` : undefined}>
 
             {/* Row 30 — Finance Amount */}
             <div className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3 mb-4">
@@ -690,7 +877,7 @@ export default function Calculator() {
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Finance Amount</p>
                 <p className="text-xs text-slate-400 mt-0.5">= Grand Total Price</p>
               </div>
-              <span className="text-xl font-bold text-brand-charcoal">{fmt(grandTotal)}</span>
+              <span className="text-base font-bold text-brand-charcoal">{fmt(grandTotal)}</span>
             </div>
 
             {/* Row 31 — Leasing Period + Normalized Rate */}
@@ -728,11 +915,11 @@ export default function Calculator() {
             <div className="grid grid-cols-2 gap-3 mb-4">
               <div className="bg-slate-50 rounded-xl px-4 py-3">
                 <p className="text-xs text-slate-400 mb-1">Interest Rate (p.a.)</p>
-                <p className="text-2xl font-bold text-brand-charcoal">{(leasingRate * 100).toFixed(1)}%</p>
+                <p className="text-lg font-bold text-brand-charcoal">{(leasingRate * 100).toFixed(1)}%</p>
               </div>
               <div className="bg-brand-mint-light border border-brand-mint rounded-xl px-4 py-3">
                 <p className="text-xs text-brand-mint-dark mb-1">Normalized Rate</p>
-                <p className="text-2xl font-bold text-brand-charcoal">{normalizedRate.toFixed(3)}</p>
+                <p className="text-lg font-bold text-brand-charcoal">{normalizedRate.toFixed(3)}</p>
                 <p className="text-xs text-slate-400 mt-0.5">
                   {(leasingRate*100).toFixed(1)}% × {leasingYears} + 1
                 </p>
@@ -801,7 +988,7 @@ export default function Calculator() {
                     <p className="text-sm font-bold text-slate-800">Monthly Repayment</p>
                     <p className="text-xs text-slate-400">(Part A + Part B) ÷ {leasingPeriod} months</p>
                   </div>
-                  <span className="text-2xl font-bold text-brand-mint-dark">{fmt(leasingMonthly)}</span>
+                  <span className="text-lg font-bold text-brand-mint-dark">{fmt(leasingMonthly)}</span>
                 </div>
                 <div className="flex justify-between text-xs text-slate-400 pt-1">
                   <span>Residual Value (due end of lease)</span>
@@ -828,9 +1015,7 @@ export default function Calculator() {
                 <div>
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Client's Current Monthly Cost</p>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    {clientOwnership === 'purchase'
-                      ? `Depreciation + Print (${clientMachine || 'purchased'})`
-                      : `Lease + Print (${clientMachine || 'leased'})`}
+                    {`Machine cost + Print (${clientMachines.filter(m=>m.name).map(m=>m.name).join(', ') || 'client machines'})`}
                   </p>
                 </div>
                 <span className="text-xl font-bold text-slate-700">{fmt(currentMonthlyCost)}</span>
@@ -881,9 +1066,29 @@ export default function Calculator() {
               </div>
             )}
 
+            {/* Residual Value toggle */}
+            <div className="flex items-center justify-between mb-4">
+              <label className="text-sm font-medium text-slate-600">Residual Value %</label>
+              <div className="flex gap-1.5">
+                {[25, 30].map(pct => (
+                  <button
+                    key={pct}
+                    onClick={() => setResidualPct(pct)}
+                    className={`px-4 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                      residualPct === pct
+                        ? 'bg-brand-charcoal text-white border-brand-charcoal'
+                        : 'bg-white text-slate-600 border-slate-300 hover:border-brand-mint hover:text-brand-mint-dark'
+                    }`}
+                  >
+                    {pct}%
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="bg-slate-50 rounded-xl p-4 space-y-2 mt-4">
               <ResultRow label="Finance Amount (Monthly × 60)" value={fmt(financeAmt)} />
-              <ResultRow label="Residual Value — 25% of Finance Amt" value={fmt(residualValue)} />
+              <ResultRow label={`Residual Value — ${residualPct}% of Finance Amt`} value={fmt(residualValue)} />
               <ResultRow label="Grand Total (Financed)" value={fmt(grandTotal)} />
               <div
                 className={`flex justify-between items-center py-3 px-4 rounded-xl mt-2 ${
@@ -930,21 +1135,16 @@ export default function Calculator() {
                       {/* Current */}
                       <div className="bg-slate-50 px-4 py-4 border-r border-slate-200">
                         <p className="text-xs font-semibold text-slate-400 uppercase mb-3">Current</p>
-                        {clientOwnership === 'purchase' ? (
-                          <>
-                            <div className="text-xs text-slate-500 mb-1">
-                              Depreciation/mo
-                              <span className="float-right font-medium text-slate-700">
-                                {fmt((parseFloat(clientPurchaseCost) || 0) / ((parseFloat(clientYears) || 1) * 12))}
-                              </span>
-                            </div>
-                          </>
-                        ) : (
-                          <div className="text-xs text-slate-500 mb-1">
-                            Lease/mo
-                            <span className="float-right font-medium text-slate-700">{fmt(monthlyLease)}</span>
+                        {clientMachines.map(m => (
+                          <div key={m.id} className="text-xs text-slate-500 mb-1">
+                            {m.name || (m.ownership === 'purchase' ? 'Purchased' : 'Leased')}
+                            <span className="float-right font-medium text-slate-700">
+                              {m.ownership === 'purchase'
+                                ? fmt((parseFloat(m.purchaseCost)||0)/((parseFloat(m.years)||5)*12))
+                                : fmt(m.monthlyLease)}/mo
+                            </span>
                           </div>
-                        )}
+                        ))}
                         <div className="text-xs text-slate-500 mb-3">
                           Print cost/mo
                           <span className="float-right font-medium text-slate-700">{fmt(clientMonthlyPrintCost)}</span>
@@ -1040,70 +1240,150 @@ export default function Calculator() {
               </div>
 
               {/* Recommended quote */}
-              <div className={`rounded-2xl overflow-hidden border-2 ${quoteIsProfitable ? 'border-brand-mint' : 'border-amber-400'}`}>
-                <div className={`px-4 py-3 ${quoteIsProfitable ? 'bg-brand-mint' : 'bg-amber-400'}`}>
-                  <p className="text-white text-sm font-bold">
-                    {quoteIsProfitable ? '✅ Recommended Quote' : '⚠️ Best Possible Quote'}
-                  </p>
-                  <p className="text-white/80 text-xs mt-0.5">
-                    {quoteIsProfitable
-                      ? 'Maximises your profit while saving client ≥25%'
-                      : '25% saving not achievable above break-even — showing minimum profitable quote'}
-                  </p>
-                </div>
-                <div className="p-4 bg-white">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <p className="text-xs text-slate-400">Monthly Repayment to Quote</p>
-                      <p className="text-3xl font-bold text-brand-charcoal mt-0.5">{fmt(recommendedMonthly)}</p>
-                    </div>
-                    {recommendedSavingPct !== null && (
-                      <div className={`text-center px-4 py-2 rounded-xl ${recommendedSavingPct >= 25 ? 'bg-green-100' : 'bg-amber-100'}`}>
-                        <p className={`text-2xl font-bold ${recommendedSavingPct >= 25 ? 'text-green-700' : 'text-amber-700'}`}>
-                          {recommendedSavingPct.toFixed(1)}%
-                        </p>
-                        <p className={`text-xs ${recommendedSavingPct >= 25 ? 'text-green-600' : 'text-amber-600'}`}>
-                          client saves
-                        </p>
-                      </div>
-                    )}
+              {quoteIsProfitable ? (
+                /* ✅ Profitable path — standard recommendation */
+                <div className="rounded-2xl overflow-hidden border-2 border-brand-mint">
+                  <div className="px-4 py-3 bg-brand-mint">
+                    <p className="text-white text-sm font-bold">✅ Recommended Quote</p>
+                    <p className="text-white/80 text-xs mt-0.5">Maximises your profit while saving client ≥25%</p>
                   </div>
-
-                  <div className="space-y-2 text-sm">
-                    {currentMonthlyCost > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Client current cost</span>
-                        <span className="font-medium text-slate-700">{fmt(currentMonthlyCost)}/mo</span>
+                  <div className="p-4 bg-white">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <p className="text-xs text-slate-400">Monthly Repayment to Quote</p>
+                        <p className="text-3xl font-bold text-brand-charcoal mt-0.5">{fmt(recommendedMonthly)}</p>
                       </div>
-                    )}
-                    {currentMonthlyCost > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Client new net cost</span>
-                        <span className="font-medium text-green-600">{fmt(recommendedNetCost)}/mo</span>
-                      </div>
-                    )}
-                    {currentMonthlyCost > 0 && (
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">Client saves</span>
-                        <span className="font-medium text-green-600">{fmt(currentMonthlyCost - recommendedNetCost)}/mo</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between border-t border-slate-100 pt-2 mt-1">
-                      <span className="text-slate-400">Your profit ({leasingPeriod}mo × {fmt(recommendedMonthly)} − Grand Total)</span>
-                      <span className={`font-bold ${recommendedProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                        {fmt(recommendedProfit)}
-                      </span>
+                      {recommendedSavingPct !== null && (
+                        <div className={`text-center px-4 py-2 rounded-xl ${recommendedSavingPct >= 25 ? 'bg-green-100' : 'bg-amber-100'}`}>
+                          <p className={`text-2xl font-bold ${recommendedSavingPct >= 25 ? 'text-green-700' : 'text-amber-700'}`}>
+                            {recommendedSavingPct.toFixed(1)}%
+                          </p>
+                          <p className={`text-xs ${recommendedSavingPct >= 25 ? 'text-green-600' : 'text-amber-600'}`}>client saves</p>
+                        </div>
+                      )}
                     </div>
+                    <div className="space-y-2 text-sm">
+                      {currentMonthlyCost > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Client current cost</span>
+                          <span className="font-medium text-slate-700">{fmt(currentMonthlyCost)}/mo</span>
+                        </div>
+                      )}
+                      {currentMonthlyCost > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Client new net cost</span>
+                          <span className="font-medium text-green-600">{fmt(recommendedNetCost)}/mo</span>
+                        </div>
+                      )}
+                      {currentMonthlyCost > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Client saves</span>
+                          <span className="font-medium text-green-600">{fmt(currentMonthlyCost - recommendedNetCost)}/mo</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between border-t border-slate-100 pt-2 mt-1">
+                        <span className="text-slate-400">Your profit ({leasingPeriod}mo × {fmt(recommendedMonthly)} − Grand Total)</span>
+                        <span className="font-bold text-green-600">{fmt(recommendedProfit)}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setMonthlyRepayment(recommendedMonthly.toFixed(2))}
+                      className="mt-4 w-full py-2.5 rounded-xl bg-brand-charcoal text-white text-sm font-semibold hover:bg-brand-charcoal-dark transition-colors"
+                    >
+                      → Apply to Profit Calculator
+                    </button>
                   </div>
-
-                  <button
-                    onClick={() => setMonthlyRepayment(recommendedMonthly.toFixed(2))}
-                    className="mt-4 w-full py-2.5 rounded-xl bg-brand-charcoal text-white text-sm font-semibold hover:bg-brand-charcoal-dark transition-colors"
-                  >
-                    → Apply to Profit Calculator
-                  </button>
                 </div>
-              </div>
+              ) : (
+                /* ⚠️ Unprofitable path — push to ceiling + give rebate for 25% saving */
+                <div className="rounded-2xl overflow-hidden border-2 border-red-300">
+                  <div className="px-4 py-3 bg-red-500">
+                    <p className="text-white text-sm font-bold">⚠️ Deal is Tight — Best Possible Quote</p>
+                    <p className="text-white/80 text-xs mt-0.5">
+                      Charge the maximum ceiling &amp; offset with rebate to still give client 25% saving
+                    </p>
+                  </div>
+                  <div className="p-4 bg-white space-y-4">
+
+                    {/* Two-column: Monthly + Rebate */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-slate-50 rounded-xl px-3 py-3 text-center">
+                        <p className="text-xs text-slate-400 mb-1">Charge (ceiling)</p>
+                        <p className="text-2xl font-bold text-brand-charcoal">{fmt(ceilMonthly)}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">/month</p>
+                      </div>
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-3 text-center">
+                        <p className="text-xs text-amber-600 mb-1">Give Rebate</p>
+                        <p className="text-2xl font-bold text-amber-700">
+                          {ceilRebatePerMonth > 0 ? fmt(ceilRebatePerMonth) : '—'}
+                        </p>
+                        <p className="text-xs text-amber-500 mt-0.5">
+                          {ceilRebatePerMonth > 0 ? `/mo (${fmt(ceilRebateTotal)} total)` : 'none needed'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Client saving result */}
+                    {ceilSavingPct !== null && (
+                      <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                        <div>
+                          <p className="text-xs font-semibold text-green-700">Client Net Cost After Rebate</p>
+                          <p className="text-xs text-green-500 mt-0.5">
+                            {fmt(ceilMonthly)} − {fmt(ceilRebatePerMonth)}/mo rebate
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-green-700">{fmt(ceilClientNetCost)}/mo</p>
+                          <p className="text-xs text-green-500 font-semibold">saves {ceilSavingPct.toFixed(1)}%</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Cost breakdown */}
+                    <div className="space-y-2 text-sm border-t border-slate-100 pt-3">
+                      {currentMonthlyCost > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Client current cost</span>
+                          <span className="font-medium text-slate-700">{fmt(currentMonthlyCost)}/mo</span>
+                        </div>
+                      )}
+                      {ceilRebatePerMonth > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Rebate cost to you ({fmt(ceilRebateTotal)} total)</span>
+                          <span className="font-medium text-red-500">−{fmt(ceilRebateTotal)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between pt-1 border-t border-slate-100">
+                        <span className="text-slate-500 font-medium">Your profit</span>
+                        <span className={`font-bold ${ceilProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                          {fmt(ceilProfit)}
+                          {ceilProfit < 0 && <span className="text-xs font-normal ml-1">(loss)</span>}
+                        </span>
+                      </div>
+                    </div>
+
+                    {ceilProfit < 0 && (
+                      <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-600">
+                        <p className="font-semibold mb-0.5">⚠️ This deal results in a loss</p>
+                        <p>Even at the maximum ceiling with optimal rebate, costs exceed revenue. Consider renegotiating the machine price or outstanding amount.</p>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setMonthlyRepayment(ceilMonthly.toFixed(2))
+                        if (ceilRebatePerMonth > 0) {
+                          setRebate(String(-(ceilRebateTotal)))
+                          setRebatePerMonth(Math.min(500, Math.round(ceilRebatePerMonth / 10) * 10))
+                        }
+                      }}
+                      className="w-full py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors"
+                    >
+                      → Apply Ceiling + Rebate to Calculator
+                    </button>
+                  </div>
+                </div>
+              )}
             </SectionCard>
           )}
         </div>
