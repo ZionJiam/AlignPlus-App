@@ -115,6 +115,10 @@ export default function Calculator() {
     setRebatePerMonth(nearest)
   }
 
+  // --- Leasing Calculator ---
+  const [leasingPeriod, setLeasingPeriod] = useState(60)
+  const [residualValueAmt, setResidualValueAmt] = useState('')
+
   // --- Profit ---
   const [monthlyRepayment, setMonthlyRepayment] = useState('')
 
@@ -151,9 +155,13 @@ export default function Calculator() {
     return bw + color
   }, [bwCost, bwUnits, colorCost, colorUnits])
 
+  const nonAchievedPrice = useMemo(() => {
+    return printCharges + Math.abs(parseFloat(rebate) || 0) + Math.abs(parseFloat(tradeIn) || 0)
+  }, [printCharges, rebate, tradeIn])
+
   const grandTotal = useMemo(() => {
-    return (parseFloat(machineCost) || 0) + outstanding + printCharges
-  }, [machineCost, outstanding, printCharges])
+    return (parseFloat(machineCost) || 0) + outstanding + nonAchievedPrice
+  }, [machineCost, outstanding, nonAchievedPrice])
 
   const financeAmt = useMemo(() => {
     return (parseFloat(monthlyRepayment) || 0) * 60
@@ -161,16 +169,27 @@ export default function Calculator() {
 
   const residualValue = useMemo(() => financeAmt * 0.25, [financeAmt])
 
-  const grossProfit = useMemo(() => financeAmt - grandTotal, [financeAmt, grandTotal])
-
-  const netProfit = useMemo(() => {
-    return grossProfit - Math.abs(parseFloat(rebate) || 0) - Math.abs(parseFloat(tradeIn) || 0)
-  }, [grossProfit, rebate, tradeIn])
+  const profit = useMemo(() => financeAmt - grandTotal, [financeAmt, grandTotal])
 
   const repaymentCeiling = useMemo(() => {
     const mc = parseFloat(machineCost) || 0
     return (outstanding + mc * 3) / 60
   }, [outstanding, machineCost])
+
+  // --- Leasing Calculator computed values ---
+  const INTEREST_RATES = { 36: 0.04, 60: 0.04, 72: 0.044 }
+  const leasingRate = INTEREST_RATES[leasingPeriod]                         // r
+  const leasingYears = leasingPeriod / 12                                   // y = months / 12
+  const normalizedRate = leasingRate * leasingYears + 1                     // r × y + 1
+  const defaultResidual = grandTotal * 0.25
+  const leasingRV = parseFloat(residualValueAmt) || defaultResidual         // editable RV
+  const leasingRVPct = grandTotal > 0 ? (leasingRV / grandTotal) * 100 : 0
+  // Monthly = Part A + Part B
+  // Part A: interest on residual value (held at full amount throughout lease)
+  const leasingPartA = leasingRV * leasingRate * 2 * leasingYears
+  // Part B: (FA - RV) × normalized rate / period
+  const leasingPartB = (grandTotal - leasingRV) * normalizedRate / leasingPeriod
+  const leasingMonthly = leasingPartA + leasingPartB
 
   const rebateSavingPerMonth = useMemo(() => {
     return Math.abs(parseFloat(rebate) || 0) / 30
@@ -609,23 +628,180 @@ export default function Calculator() {
           <SectionCard title="6. Grand Total Summary">
             <ResultRow label="Machine Cost" value={fmt(machineCost)} />
             <ResultRow label="Total Outstanding" value={fmt(outstanding)} />
-            <ResultRow label="Print Charges" value={fmt(printCharges)} />
-            <ResultRow label="Grand Total (Financed)" value={fmt(grandTotal)} highlight />
-            {((parseFloat(rebate) || 0) !== 0 || (parseFloat(tradeIn) || 0) !== 0) && (
-              <div className="mt-3 pt-3 border-t border-slate-100">
-                <p className="text-xs font-semibold text-slate-400 uppercase mb-2">Profit Deductions</p>
-                {(parseFloat(rebate) || 0) !== 0 && (
-                  <ResultRow label="Rebate" value={`−${fmt(Math.abs(parseFloat(rebate) || 0))}`} sub />
+
+            {/* Non-Achieved Price block */}
+            <div className="my-3 border border-slate-200 rounded-xl overflow-hidden">
+              <div className="bg-slate-50 px-4 py-2">
+                <div className="flex justify-between items-center">
+                  <p className="text-xs font-semibold text-slate-500 uppercase">Non-Achieved Price</p>
+                  <span className="text-sm font-semibold text-slate-700">{fmt(nonAchievedPrice)}</span>
+                </div>
+              </div>
+              <div className="px-4 py-3 space-y-2">
+                <div className="flex justify-between text-xs text-slate-500">
+                  <span>Free Copy Charges</span>
+                  <span className="font-medium text-slate-600">{fmt(printCharges)}</span>
+                </div>
+                {Math.abs(parseFloat(rebate) || 0) > 0 && (
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Rebate</span>
+                    <span className="font-medium text-slate-600">{fmt(Math.abs(parseFloat(rebate) || 0))}</span>
+                  </div>
                 )}
-                {(parseFloat(tradeIn) || 0) !== 0 && (
-                  <ResultRow label="Trade-in" value={`−${fmt(Math.abs(parseFloat(tradeIn) || 0))}`} sub />
+                {Math.abs(parseFloat(tradeIn) || 0) > 0 && (
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Trade-in</span>
+                    <span className="font-medium text-slate-600">{fmt(Math.abs(parseFloat(tradeIn) || 0))}</span>
+                  </div>
                 )}
               </div>
+            </div>
+
+            <ResultRow label="Grand Total (Financed)" value={fmt(grandTotal)} highlight />
+          </SectionCard>
+
+          {/* Leasing Calculator */}
+          <SectionCard title="7. Leasing Repayment Calculator">
+
+            {/* Row 30 — Finance Amount */}
+            <div className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3 mb-4">
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Finance Amount</p>
+                <p className="text-xs text-slate-400 mt-0.5">= Grand Total Price</p>
+              </div>
+              <span className="text-xl font-bold text-brand-charcoal">{fmt(grandTotal)}</span>
+            </div>
+
+            {/* Row 31 — Leasing Period + Normalized Rate */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-600 mb-2">Leasing Period</label>
+              <div className="flex gap-2">
+                {[36, 60, 72].map(m => {
+                  const r = INTEREST_RATES[m]
+                  const y = m / 12
+                  const nr = r * y + 1
+                  return (
+                    <button
+                      key={m}
+                      onClick={() => { setLeasingPeriod(m); setResidualValueAmt('') }}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+                        leasingPeriod === m
+                          ? 'bg-brand-charcoal text-white border-brand-charcoal'
+                          : 'bg-white text-slate-600 border-slate-300 hover:border-brand-mint hover:text-brand-mint-dark'
+                      }`}
+                    >
+                      <span className="block">{m} mo</span>
+                      <span className={`text-xs font-normal ${leasingPeriod === m ? 'text-slate-300' : 'text-slate-400'}`}>
+                        ×{nr.toFixed(3)}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-slate-400 mt-2">
+                Normalized rate = r × (months÷12) + 1 — the total repayment factor per $1 financed
+              </p>
+            </div>
+
+            {/* Row 32 — Interest Rate */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="bg-slate-50 rounded-xl px-4 py-3">
+                <p className="text-xs text-slate-400 mb-1">Interest Rate (p.a.)</p>
+                <p className="text-2xl font-bold text-brand-charcoal">{(leasingRate * 100).toFixed(1)}%</p>
+              </div>
+              <div className="bg-brand-mint-light border border-brand-mint rounded-xl px-4 py-3">
+                <p className="text-xs text-brand-mint-dark mb-1">Normalized Rate</p>
+                <p className="text-2xl font-bold text-brand-charcoal">{normalizedRate.toFixed(3)}</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {(leasingRate*100).toFixed(1)}% × {leasingYears} + 1
+                </p>
+              </div>
+            </div>
+
+            {/* Row 33 — Residual Value */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-sm font-medium text-slate-600">Residual Value</label>
+                <div className="flex items-center gap-2">
+                  {leasingRVPct > 0 && (
+                    <span className="text-xs text-slate-400">{leasingRVPct.toFixed(1)}% of FA</span>
+                  )}
+                  <button
+                    onClick={() => setResidualValueAmt('')}
+                    className="text-xs text-brand-mint-dark hover:underline"
+                  >
+                    Reset to 25%
+                  </button>
+                </div>
+              </div>
+              <NumInput
+                value={residualValueAmt || defaultResidual.toFixed(2)}
+                onChange={setResidualValueAmt}
+                prefix="$"
+                placeholder={defaultResidual.toFixed(2)}
+              />
+              <p className="text-xs text-slate-400 mt-1">Balloon payment due at end of lease. Max 25% of Finance Amount ({fmt(defaultResidual)})</p>
+            </div>
+
+            {/* Row 34 — Monthly Repayment full breakdown */}
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <div className="bg-slate-50 px-4 py-2.5 border-b border-slate-200">
+                <p className="text-xs font-semibold text-slate-500 uppercase">Monthly Repayment Breakdown</p>
+              </div>
+              <div className="p-4 space-y-3">
+
+                {/* Part A */}
+                <div className="bg-slate-50 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Part A — Interest on Residual Value</p>
+                  <p className="text-xs text-slate-400 font-mono mb-2">
+                    RV × r × 2 × y = {fmt(leasingRV)} × {(leasingRate*100).toFixed(1)}% × 2 × {leasingYears}
+                  </p>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-slate-500">Part A result</span>
+                    <span className="text-base font-bold text-brand-charcoal">{fmt(leasingPartA)}</span>
+                  </div>
+                </div>
+
+                {/* Part B */}
+                <div className="bg-slate-50 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Part B — Financed Balance</p>
+                  <p className="text-xs text-slate-400 font-mono mb-2">
+                    (FA − RV) × NR ÷ Period = ({fmt(grandTotal)} − {fmt(leasingRV)}) × {normalizedRate.toFixed(3)} ÷ {leasingPeriod}
+                  </p>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-slate-500">Part B result</span>
+                    <span className="text-base font-bold text-brand-charcoal">{fmt(leasingPartB)}</span>
+                  </div>
+                </div>
+
+                {/* Total */}
+                <div className="flex justify-between items-center pt-2 border-t border-slate-200">
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">Monthly Repayment</p>
+                    <p className="text-xs text-slate-400">Part A + Part B</p>
+                  </div>
+                  <span className="text-2xl font-bold text-brand-mint-dark">{fmt(leasingMonthly)}</span>
+                </div>
+                <div className="flex justify-between text-xs text-slate-400 pt-1">
+                  <span>Residual Value (due end of lease)</span>
+                  <span className="font-medium">{fmt(leasingRV)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Apply button */}
+            {grandTotal > 0 && (
+              <button
+                onClick={() => setMonthlyRepayment(leasingMonthly.toFixed(2))}
+                className="mt-4 w-full py-2.5 rounded-xl bg-brand-mint text-white text-sm font-semibold hover:bg-brand-mint-dark transition-colors"
+              >
+                → Apply to Profit Calculator
+              </button>
             )}
           </SectionCard>
 
           {/* Profit */}
-          <SectionCard title="7. Profit Calculator">
+          <SectionCard title="8. Profit Calculator">
             {currentMonthlyCost > 0 && (
               <div className="mb-4 bg-slate-100 rounded-xl px-4 py-3 flex items-center justify-between">
                 <div>
@@ -688,33 +864,22 @@ export default function Calculator() {
               <ResultRow label="Finance Amount (Monthly × 60)" value={fmt(financeAmt)} />
               <ResultRow label="Residual Value — 25% of Finance Amt" value={fmt(residualValue)} />
               <ResultRow label="Grand Total (Financed)" value={fmt(grandTotal)} />
-              <ResultRow label="Gross Profit" value={fmt(grossProfit)} highlight />
-              {((parseFloat(rebate) || 0) !== 0 || (parseFloat(tradeIn) || 0) !== 0) && (
-                <>
-                  {(parseFloat(rebate) || 0) !== 0 && (
-                    <ResultRow label="− Rebate" value={`−${fmt(Math.abs(parseFloat(rebate) || 0))}`} sub />
-                  )}
-                  {(parseFloat(tradeIn) || 0) !== 0 && (
-                    <ResultRow label="− Trade-in" value={`−${fmt(Math.abs(parseFloat(tradeIn) || 0))}`} sub />
-                  )}
-                </>
-              )}
               <div
                 className={`flex justify-between items-center py-3 px-4 rounded-xl mt-2 ${
-                  netProfit >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
+                  profit >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
                 }`}
               >
-                <span className="font-bold text-slate-700">Net Profit</span>
-                <span className={`text-lg font-bold ${netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {fmt(netProfit)}
+                <span className="font-bold text-slate-700">Profit</span>
+                <span className={`text-lg font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {fmt(profit)}
                 </span>
               </div>
             </div>
 
             <div className="mt-4 text-xs text-slate-400 leading-relaxed">
               Finance Amount = Monthly Repayment × 60 &nbsp;|&nbsp;
-              Gross Profit = Finance Amount − Grand Total &nbsp;|&nbsp;
-              Net Profit = Gross Profit − Rebate − Trade-in
+              Grand Total includes all costs (machine, outstanding, print charges, rebate, trade-in) &nbsp;|&nbsp;
+              Profit = Finance Amount − Grand Total
             </div>
 
             {(outstanding > 0 || (parseFloat(machineCost) || 0) > 0) && (
