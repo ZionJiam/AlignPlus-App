@@ -184,12 +184,12 @@ export default function Calculator() {
   const defaultResidual = grandTotal * 0.25
   const leasingRV = parseFloat(residualValueAmt) || defaultResidual         // editable RV
   const leasingRVPct = grandTotal > 0 ? (leasingRV / grandTotal) * 100 : 0
-  // Monthly = Part A + Part B
-  // Part A: interest on residual value (held at full amount throughout lease)
+  // Part A: total interest charged on the residual value (held at full balloon amount throughout)
   const leasingPartA = leasingRV * leasingRate * 2 * leasingYears
-  // Part B: (FA - RV) × normalized rate / period
-  const leasingPartB = (grandTotal - leasingRV) * normalizedRate / leasingPeriod
-  const leasingMonthly = leasingPartA + leasingPartB
+  // Part B: total repayment of the non-residual balance (principal + its flat interest)
+  const leasingPartB = (grandTotal - leasingRV) * normalizedRate
+  // Monthly = Part A + (Part B ÷ Period)
+  const leasingMonthly = leasingPartA + leasingPartB / leasingPeriod
 
   const rebateSavingPerMonth = useMemo(() => {
     return Math.abs(parseFloat(rebate) || 0) / 30
@@ -764,13 +764,22 @@ export default function Calculator() {
 
                 {/* Part B */}
                 <div className="bg-slate-50 rounded-lg p-3">
-                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Part B — Financed Balance</p>
-                  <p className="text-xs text-slate-400 font-mono mb-2">
-                    (FA − RV) × NR ÷ Period = ({fmt(grandTotal)} − {fmt(leasingRV)}) × {normalizedRate.toFixed(3)} ÷ {leasingPeriod}
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Part B — Total Balance Repayment</p>
+                  <p className="text-xs text-slate-400 font-mono mb-1">
+                    (FA − RV) × NR = ({fmt(grandTotal)} − {fmt(leasingRV)}) × {normalizedRate.toFixed(3)}
                   </p>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-slate-500">Part B result</span>
-                    <span className="text-base font-bold text-brand-charcoal">{fmt(leasingPartB)}</span>
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs text-slate-500">Part B total</span>
+                    <span className="text-sm font-semibold text-slate-700">{fmt(leasingPartB)}</span>
+                  </div>
+                  <div className="border-t border-slate-200 pt-2">
+                    <p className="text-xs text-slate-400 font-mono mb-1">
+                      Part B ÷ {leasingPeriod} months = {fmt(leasingPartB)} ÷ {leasingPeriod}
+                    </p>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-slate-500">Part B monthly</span>
+                      <span className="text-base font-bold text-brand-charcoal">{fmt(leasingPartB / leasingPeriod)}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -778,7 +787,7 @@ export default function Calculator() {
                 <div className="flex justify-between items-center pt-2 border-t border-slate-200">
                   <div>
                     <p className="text-sm font-bold text-slate-800">Monthly Repayment</p>
-                    <p className="text-xs text-slate-400">Part A + Part B</p>
+                    <p className="text-xs text-slate-400">Part A + (Part B ÷ {leasingPeriod})</p>
                   </div>
                   <span className="text-2xl font-bold text-brand-mint-dark">{fmt(leasingMonthly)}</span>
                 </div>
