@@ -188,8 +188,8 @@ export default function Calculator() {
   const leasingPartA = leasingRV * leasingRate * 2 * leasingYears
   // Part B: total repayment of the non-residual balance (principal + its flat interest)
   const leasingPartB = (grandTotal - leasingRV) * normalizedRate
-  // Monthly = Part A + (Part B ÷ Period)
-  const leasingMonthly = leasingPartA + leasingPartB / leasingPeriod
+  // Monthly = (Part A + Part B) ÷ Period
+  const leasingMonthly = (leasingPartA + leasingPartB) / leasingPeriod
 
   const rebateSavingPerMonth = useMemo(() => {
     return Math.abs(parseFloat(rebate) || 0) / 30
@@ -227,6 +227,27 @@ export default function Calculator() {
     if (!currentMonthlyCost) return 0
     return (monthlySavings / currentMonthlyCost) * 100
   }, [monthlySavings, currentMonthlyCost])
+
+  // --- Smart Quote Recommendation ---
+  // Floor: minimum monthly to break even (leasing formula)
+  const breakEvenMonthly = leasingMonthly
+  // Target: highest monthly that still saves client 25% (net of rebate)
+  const savingTarget25 = currentMonthlyCost > 0
+    ? currentMonthlyCost * 0.75 + rebateSavingPerMonth
+    : null
+  // Recommended: max we can charge while saving client 25%, capped at ceiling
+  const recommendedMonthly = savingTarget25 !== null
+    ? Math.min(savingTarget25, repaymentCeiling)
+    : repaymentCeiling
+  // Is the recommended quote profitable (above break-even)?
+  const quoteIsProfitable = recommendedMonthly >= breakEvenMonthly
+  // What % does client actually save at recommended monthly?
+  const recommendedNetCost = recommendedMonthly - rebateSavingPerMonth
+  const recommendedSavingPct = currentMonthlyCost > 0
+    ? ((currentMonthlyCost - recommendedNetCost) / currentMonthlyCost) * 100
+    : null
+  // Profit at recommended monthly (using leasing period)
+  const recommendedProfit = recommendedMonthly * leasingPeriod - grandTotal
 
   return (
     <div>
@@ -768,18 +789,9 @@ export default function Calculator() {
                   <p className="text-xs text-slate-400 font-mono mb-1">
                     (FA − RV) × NR = ({fmt(grandTotal)} − {fmt(leasingRV)}) × {normalizedRate.toFixed(3)}
                   </p>
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-xs text-slate-500">Part B total</span>
-                    <span className="text-sm font-semibold text-slate-700">{fmt(leasingPartB)}</span>
-                  </div>
-                  <div className="border-t border-slate-200 pt-2">
-                    <p className="text-xs text-slate-400 font-mono mb-1">
-                      Part B ÷ {leasingPeriod} months = {fmt(leasingPartB)} ÷ {leasingPeriod}
-                    </p>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-slate-500">Part B monthly</span>
-                      <span className="text-base font-bold text-brand-charcoal">{fmt(leasingPartB / leasingPeriod)}</span>
-                    </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-slate-500">Part B total</span>
+                    <span className="text-base font-bold text-brand-charcoal">{fmt(leasingPartB)}</span>
                   </div>
                 </div>
 
@@ -787,7 +799,7 @@ export default function Calculator() {
                 <div className="flex justify-between items-center pt-2 border-t border-slate-200">
                   <div>
                     <p className="text-sm font-bold text-slate-800">Monthly Repayment</p>
-                    <p className="text-xs text-slate-400">Part A + (Part B ÷ {leasingPeriod})</p>
+                    <p className="text-xs text-slate-400">(Part A + Part B) ÷ {leasingPeriod} months</p>
                   </div>
                   <span className="text-2xl font-bold text-brand-mint-dark">{fmt(leasingMonthly)}</span>
                 </div>
@@ -984,6 +996,116 @@ export default function Calculator() {
               </div>
             )}
           </SectionCard>
+
+          {/* Smart Quote Recommendation */}
+          {grandTotal > 0 && leasingMonthly > 0 && (
+            <SectionCard title="💡 Smart Quote Recommendation">
+              {currentMonthlyCost === 0 && (
+                <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700">
+                  Fill in <strong>Client's Current Setup</strong> to unlock personalised saving recommendations.
+                </div>
+              )}
+
+              {/* Three reference lines */}
+              <div className="space-y-2 mb-5">
+                <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">🔴 Break-even (Floor)</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Min to cover leasing cost — below this = loss</p>
+                  </div>
+                  <span className="text-base font-bold text-slate-700">{fmt(breakEvenMonthly)}</span>
+                </div>
+
+                {repaymentCeiling > 0 && (
+                  <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500">🟡 Repayment Ceiling</p>
+                      <p className="text-xs text-slate-400 mt-0.5">(Outstanding + Machine × 3) ÷ 60</p>
+                    </div>
+                    <span className="text-base font-bold text-slate-700">{fmt(repaymentCeiling)}</span>
+                  </div>
+                )}
+
+                {savingTarget25 !== null && (
+                  <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-brand-mint-light border border-brand-mint">
+                    <div>
+                      <p className="text-xs font-semibold text-brand-mint-dark">🎯 25% Saving Target</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Client cost × 75% + rebate saving ({fmt(rebateSavingPerMonth)}/mo)
+                      </p>
+                    </div>
+                    <span className="text-base font-bold text-brand-mint-dark">{fmt(savingTarget25)}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Recommended quote */}
+              <div className={`rounded-2xl overflow-hidden border-2 ${quoteIsProfitable ? 'border-brand-mint' : 'border-amber-400'}`}>
+                <div className={`px-4 py-3 ${quoteIsProfitable ? 'bg-brand-mint' : 'bg-amber-400'}`}>
+                  <p className="text-white text-sm font-bold">
+                    {quoteIsProfitable ? '✅ Recommended Quote' : '⚠️ Best Possible Quote'}
+                  </p>
+                  <p className="text-white/80 text-xs mt-0.5">
+                    {quoteIsProfitable
+                      ? 'Maximises your profit while saving client ≥25%'
+                      : '25% saving not achievable above break-even — showing minimum profitable quote'}
+                  </p>
+                </div>
+                <div className="p-4 bg-white">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="text-xs text-slate-400">Monthly Repayment to Quote</p>
+                      <p className="text-3xl font-bold text-brand-charcoal mt-0.5">{fmt(recommendedMonthly)}</p>
+                    </div>
+                    {recommendedSavingPct !== null && (
+                      <div className={`text-center px-4 py-2 rounded-xl ${recommendedSavingPct >= 25 ? 'bg-green-100' : 'bg-amber-100'}`}>
+                        <p className={`text-2xl font-bold ${recommendedSavingPct >= 25 ? 'text-green-700' : 'text-amber-700'}`}>
+                          {recommendedSavingPct.toFixed(1)}%
+                        </p>
+                        <p className={`text-xs ${recommendedSavingPct >= 25 ? 'text-green-600' : 'text-amber-600'}`}>
+                          client saves
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 text-sm">
+                    {currentMonthlyCost > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Client current cost</span>
+                        <span className="font-medium text-slate-700">{fmt(currentMonthlyCost)}/mo</span>
+                      </div>
+                    )}
+                    {currentMonthlyCost > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Client new net cost</span>
+                        <span className="font-medium text-green-600">{fmt(recommendedNetCost)}/mo</span>
+                      </div>
+                    )}
+                    {currentMonthlyCost > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Client saves</span>
+                        <span className="font-medium text-green-600">{fmt(currentMonthlyCost - recommendedNetCost)}/mo</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t border-slate-100 pt-2 mt-1">
+                      <span className="text-slate-400">Your profit ({leasingPeriod}mo × {fmt(recommendedMonthly)} − Grand Total)</span>
+                      <span className={`font-bold ${recommendedProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        {fmt(recommendedProfit)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setMonthlyRepayment(recommendedMonthly.toFixed(2))}
+                    className="mt-4 w-full py-2.5 rounded-xl bg-brand-charcoal text-white text-sm font-semibold hover:bg-brand-charcoal-dark transition-colors"
+                  >
+                    → Apply to Profit Calculator
+                  </button>
+                </div>
+              </div>
+            </SectionCard>
+          )}
         </div>
       </div>
     </div>
