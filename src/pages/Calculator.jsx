@@ -237,8 +237,8 @@ export default function Calculator() {
   const defaultResidual = grandTotal * 0.25
   const leasingRV = parseFloat(residualValueAmt) || defaultResidual         // editable RV
   const leasingRVPct = grandTotal > 0 ? (leasingRV / grandTotal) * 100 : 0
-  // Part A: total interest charged on the residual value (held at full balloon amount throughout)
-  const leasingPartA = leasingRV * leasingRate * 2 * leasingYears
+  // Part A: total interest charged on the residual value (fixed multiplier 2 × 5)
+  const leasingPartA = leasingRV * leasingRate * 2 * 5
   // Part B: total repayment of the non-residual balance (principal + its flat interest)
   const leasingPartB = (grandTotal - leasingRV) * normalizedRate
   // Monthly = (Part A + Part B) ÷ Period
@@ -1000,7 +1000,7 @@ export default function Calculator() {
                 <div className="bg-slate-50 rounded-lg p-3">
                   <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Part A — Interest on Residual Value</p>
                   <p className="text-xs text-slate-400 font-mono mb-2">
-                    RV × r × 2 × y = {fmt(leasingRV)} × {(leasingRate*100).toFixed(1)}% × 2 × {leasingYears}
+                    RV × r × 2 × 5 = {fmt(leasingRV)} × {(leasingRate*100).toFixed(1)}% × 2 × 5
                   </p>
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-slate-500">Part A result</span>
