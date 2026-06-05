@@ -14,9 +14,22 @@ const MACHINE_CATALOGUE = {
     { name: '450i (Rebuilt)', cost: 9300 },
     { name: '550i (Rebuilt)', cost: 7300 },
     { name: '558 (Rebuilt)', cost: 4800 },
+    { name: 'C250i (Rebuilt)', cost: 4300 },
   ],
   fujifilm: [
     { name: '3570 (Rebuilt)', cost: 4500 },
+    { name: 'C4570 (Rebuilt)', cost: 6500 },
+  ],
+  fujifilm_new: [
+    { name: 'C3061', cost: 6500 },
+    { name: 'C3567', cost: 6500 },
+    { name: 'C35571', cost: 11300 },
+  ],
+  epson: [
+    { name: 'SC-T3130', cost: 6200 },
+    { name: 'SC-T3435', cost: 7500 },
+    { name: 'SC-T5130', cost: 7200 },
+    { name: 'SC-T5130M', cost: 8000 },
   ],
 }
 
@@ -655,18 +668,24 @@ export default function Calculator() {
                 </div>
               </div>
             )}
-            <div className="flex gap-2 mb-4">
-              {[{ key: 'konica', label: 'Konica Minolta' }, { key: 'fujifilm', label: 'FujiFilm' }].map(b => (
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {[
+                { key: 'konica',       label: 'Konica Minolta',    sub: 'Rebuilt' },
+                { key: 'fujifilm',     label: 'FujiFilm',          sub: 'Rebuilt' },
+                { key: 'fujifilm_new', label: 'FujiFilm',          sub: 'Brand New' },
+                { key: 'epson',        label: 'Epson',              sub: 'Brand New' },
+              ].map(b => (
                 <button
                   key={b.key}
                   onClick={() => { setMachineBrand(b.key); setSelectedMachine(null) }}
-                  className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  className={`px-3 py-2 rounded-xl text-sm font-medium transition-colors text-left border ${
                     machineBrand === b.key
-                      ? 'bg-brand-mint text-white'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      ? 'bg-brand-mint text-white border-brand-mint'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-brand-mint hover:bg-brand-mint-light hover:text-brand-mint-dark'
                   }`}
                 >
-                  {b.label}
+                  <span className="block font-semibold">{b.label}</span>
+                  <span className={`text-xs ${machineBrand === b.key ? 'text-white/70' : 'text-slate-400'}`}>{b.sub}</span>
                 </button>
               ))}
             </div>
