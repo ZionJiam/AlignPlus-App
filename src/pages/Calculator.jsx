@@ -219,13 +219,10 @@ export default function Calculator() {
     return (parseFloat(machineCost) || 0) + outstanding + nonAchievedPrice
   }, [machineCost, outstanding, nonAchievedPrice])
 
-  const financeAmt = useMemo(() => {
-    return (parseFloat(monthlyRepayment) || 0) * 60
-  }, [monthlyRepayment])
-
-  const residualValue = useMemo(() => financeAmt * (residualPct / 100), [financeAmt, residualPct])
-
-  const profit = useMemo(() => financeAmt - grandTotal, [financeAmt, grandTotal])
+  // Total payments (monthly × period) — used as intermediate in GTF formula
+  const totalPayments = useMemo(() => {
+    return (parseFloat(monthlyRepayment) || 0) * leasingPeriod
+  }, [monthlyRepayment, leasingPeriod])
 
   const repaymentCeiling = useMemo(() => {
     const mc = parseFloat(machineCost) || 0
@@ -246,6 +243,20 @@ export default function Calculator() {
   const leasingPartB = (grandTotal - leasingRV) * normalizedRate
   // Monthly = (Part A + Part B) ÷ Period
   const leasingMonthly = (leasingPartA + leasingPartB) / leasingPeriod
+
+  // --- Profit Calculator: Grand Total Financed (reverse leasing formula) ---
+  // K = total flat interest as % of principal over full term (e.g. 5yr × 4% × 100 = 20)
+  const K = leasingYears * leasingRate * 100
+  const rvFraction = residualPct / 100
+  const grandTotalFinanced = useMemo(() => {
+    if (totalPayments === 0) return 0
+    const num = totalPayments * (100 / (100 + K))
+    const den = (1 + rvFraction) - (200 * rvFraction / (100 + K))
+    return den > 0 ? num / den : 0
+  }, [totalPayments, K, rvFraction])
+
+  const residualValue = useMemo(() => grandTotalFinanced * rvFraction, [grandTotalFinanced, rvFraction])
+  const profit = useMemo(() => grandTotalFinanced - grandTotal, [grandTotalFinanced, grandTotal])
 
   const rebateSavingPerMonth = useMemo(() => {
     return Math.abs(parseFloat(rebate) || 0) / 30
@@ -304,8 +315,16 @@ export default function Calculator() {
   const recommendedSavingPct = currentMonthlyCost > 0
     ? ((currentMonthlyCost - recommendedNetCost) / currentMonthlyCost) * 100
     : null
-  // Profit at recommended monthly (using leasing period)
-  const recommendedProfit = recommendedMonthly * leasingPeriod - grandTotal
+  // Helper: reverse leasing formula → principal financed from a given monthly amount
+  const calcGTF = (monthly) => {
+    if (!monthly) return 0
+    const tp = monthly * leasingPeriod
+    const num = tp * (100 / (100 + K))
+    const den = (1 + rvFraction) - (200 * rvFraction / (100 + K))
+    return den > 0 ? num / den : 0
+  }
+  // Profit at recommended monthly
+  const recommendedProfit = calcGTF(recommendedMonthly) - grandTotal
 
   // --- Ceiling + Rebate scenario (when quote is unprofitable) ---
   // Push monthly to ceiling, then calculate rebate needed to still give client 25% saving
@@ -318,7 +337,7 @@ export default function Calculator() {
   const ceilRebateTotal = ceilRebatePerMonth * 30
   // Grand total with this recommended rebate (swap out existing rebate for the new one)
   const ceilGrandTotal = grandTotalExRebate + ceilRebateTotal
-  const ceilProfit = ceilMonthly * leasingPeriod - ceilGrandTotal
+  const ceilProfit = calcGTF(ceilMonthly) - ceilGrandTotal
   const ceilClientNetCost = ceilMonthly - ceilRebatePerMonth
   const ceilSavingPct = currentMonthlyCost > 0
     ? ((currentMonthlyCost - ceilClientNetCost) / currentMonthlyCost) * 100
@@ -689,19 +708,19 @@ export default function Calculator() {
                 </button>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-2 mb-4">
+            <div className="flex flex-col gap-1.5 mb-4">
               {MACHINE_CATALOGUE[machineBrand].map(m => (
                 <button
                   key={m.name}
                   onClick={() => { setSelectedMachine(m.name); setMachineCost(String(m.cost)) }}
-                  className={`text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
+                  className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs transition-colors ${
                     selectedMachine === m.name
                       ? 'border-brand-mint bg-brand-mint-light text-brand-mint-dark font-medium'
                       : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-brand-mint hover:bg-brand-mint-light'
                   }`}
                 >
-                  <span className="block font-medium">{m.name}</span>
-                  <span className="text-xs text-slate-400">${m.cost.toLocaleString()}</span>
+                  <span className="font-medium">{m.name}</span>
+                  <span className="text-slate-400">${m.cost.toLocaleString()}</span>
                 </button>
               ))}
             </div>
@@ -1106,9 +1125,9 @@ export default function Calculator() {
             </div>
 
             <div className="bg-slate-50 rounded-xl p-4 space-y-2 mt-4">
-              <ResultRow label="Finance Amount (Monthly × 60)" value={fmt(financeAmt)} />
-              <ResultRow label={`Residual Value — ${residualPct}% of Finance Amt`} value={fmt(residualValue)} />
-              <ResultRow label="Grand Total (Financed)" value={fmt(grandTotal)} />
+              <ResultRow label="Grand Total Financed (principal)" value={fmt(grandTotalFinanced)} />
+              <ResultRow label={`Residual Value — ${residualPct}% of GTF`} value={fmt(residualValue)} />
+              <ResultRow label="Grand Total Price (your cost)" value={fmt(grandTotal)} />
               <div
                 className={`flex justify-between items-center py-3 px-4 rounded-xl mt-2 ${
                   profit >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
@@ -1122,9 +1141,8 @@ export default function Calculator() {
             </div>
 
             <div className="mt-4 text-xs text-slate-400 leading-relaxed">
-              Finance Amount = Monthly Repayment × 60 &nbsp;|&nbsp;
-              Grand Total includes all costs (machine, outstanding, print charges, rebate, trade-in) &nbsp;|&nbsp;
-              Profit = Finance Amount − Grand Total
+              Grand Total Financed = principal the client actually borrows (reverse of leasing formula) &nbsp;|&nbsp;
+              Profit = Grand Total Financed − Grand Total Price
             </div>
 
             {(outstanding > 0 || (parseFloat(machineCost) || 0) > 0) && (
