@@ -1,4 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 
 const COPIER_PRESETS = {
   small: { bwCost: 0.015, colorCost: 0.24 },
@@ -115,7 +117,47 @@ function fmt(n) {
   return '$' + Number(n || 0).toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+// Collect all calculator state into a plain object for saving
+function buildSnapshot(state) {
+  return {
+    monthlyLease: state.monthlyLease,
+    monthsLeft: state.monthsLeft,
+    outstandingFinal: state.outstandingFinal,
+    machineCost: state.machineCost,
+    machineBrand: state.machineBrand,
+    selectedMachine: state.selectedMachine,
+    copierType: state.copierType,
+    bwCost: state.bwCost,
+    bwUnits: state.bwUnits,
+    colorCost: state.colorCost,
+    colorUnits: state.colorUnits,
+    rebate: state.rebate,
+    rebatePerMonth: state.rebatePerMonth,
+    tradeIn: state.tradeIn,
+    leasingPeriod: state.leasingPeriod,
+    residualValueAmt: state.residualValueAmt,
+    monthlyRepayment: state.monthlyRepayment,
+    residualPct: state.residualPct,
+    clientMachines: state.clientMachines,
+    clientBwUnits: state.clientBwUnits,
+    clientBwCost: state.clientBwCost,
+    clientColorUnits: state.clientColorUnits,
+    clientColorCost: state.clientColorCost,
+  }
+}
+
 export default function Calculator() {
+  const { user } = useAuth()
+
+  // --- Records ---
+  const [records, setRecords] = useState([])
+  const [recordsLoading, setRecordsLoading] = useState(true)
+  const [showRecords, setShowRecords] = useState(false)
+  const [currentRecordId, setCurrentRecordId] = useState(null)
+  const [clientName, setClientName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
+
   // --- Outstanding ---
   const [monthlyLease, setMonthlyLease] = useState('')
   const [monthsLeft, setMonthsLeft] = useState('')
@@ -184,6 +226,106 @@ export default function Calculator() {
   // --- Collapsible sections ---
   const [showGrandTotal, setShowGrandTotal] = useState(false)
   const [showLeasing, setShowLeasing] = useState(false)
+
+  // --- Records: fetch from Supabase ---
+  const fetchRecords = useCallback(async () => {
+    setRecordsLoading(true)
+    const { data, error } = await supabase
+      .from('calculator_records')
+      .select('id, client_name, created_at, updated_at, data')
+      .order('updated_at', { ascending: false })
+    if (!error) setRecords(data || [])
+    setRecordsLoading(false)
+  }, [])
+
+  useEffect(() => { fetchRecords() }, [fetchRecords])
+
+  // --- Records: load a saved record into state ---
+  const loadRecord = (record) => {
+    const d = record.data
+    setClientName(record.client_name)
+    setCurrentRecordId(record.id)
+    setMonthlyLease(d.monthlyLease ?? '')
+    setMonthsLeft(d.monthsLeft ?? '')
+    setOutstandingFinal(d.outstandingFinal ?? '')
+    setMachineCost(d.machineCost ?? '')
+    setMachineBrand(d.machineBrand ?? 'konica')
+    setSelectedMachine(d.selectedMachine ?? null)
+    setCopierType(d.copierType ?? 'big')
+    setBwCost(d.bwCost ?? COPIER_PRESETS.big.bwCost)
+    setBwUnits(d.bwUnits ?? '')
+    setColorCost(d.colorCost ?? COPIER_PRESETS.big.colorCost)
+    setColorUnits(d.colorUnits ?? '')
+    setRebate(d.rebate ?? '')
+    setRebatePerMonth(d.rebatePerMonth ?? 0)
+    setTradeIn(d.tradeIn ?? '')
+    setLeasingPeriod(d.leasingPeriod ?? 60)
+    setResidualValueAmt(d.residualValueAmt ?? '')
+    setMonthlyRepayment(d.monthlyRepayment ?? '')
+    setResidualPct(d.residualPct ?? 25)
+    setClientMachines(d.clientMachines ?? [{ id: 1, name: '', ownership: 'lease', purchaseCost: '', years: '5', monthlyLease: '', monthsLeft: '', finalPayment: '' }])
+    setClientBwUnits(d.clientBwUnits ?? '')
+    setClientBwCost(d.clientBwCost ?? '')
+    setClientColorUnits(d.clientColorUnits ?? '')
+    setClientColorCost(d.clientColorCost ?? '')
+    setShowRecords(false)
+    setSaveMsg('Record loaded')
+    setTimeout(() => setSaveMsg(''), 2000)
+  }
+
+  // --- Records: reset to blank calculator ---
+  const newRecord = () => {
+    setCurrentRecordId(null)
+    setClientName('')
+    setMonthlyLease(''); setMonthsLeft(''); setOutstandingFinal('')
+    setMachineCost(''); setMachineBrand('konica'); setSelectedMachine(null)
+    setCopierType('big'); setBwCost(COPIER_PRESETS.big.bwCost); setBwUnits('')
+    setColorCost(COPIER_PRESETS.big.colorCost); setColorUnits('')
+    setRebate(''); setRebatePerMonth(0); setTradeIn('')
+    setLeasingPeriod(60); setResidualValueAmt('')
+    setMonthlyRepayment(''); setResidualPct(25)
+    setClientMachines([{ id: 1, name: '', ownership: 'lease', purchaseCost: '', years: '5', monthlyLease: '', monthsLeft: '', finalPayment: '' }])
+    setClientBwUnits(''); setClientBwCost(''); setClientColorUnits(''); setClientColorCost('')
+    setShowRecords(false)
+  }
+
+  // --- Records: save / update ---
+  const saveRecord = async () => {
+    if (!clientName.trim()) { setSaveMsg('Enter a client name first'); setTimeout(() => setSaveMsg(''), 2500); return }
+    setSaving(true)
+    const snapshot = buildSnapshot({
+      monthlyLease, monthsLeft, outstandingFinal,
+      machineCost, machineBrand, selectedMachine,
+      copierType, bwCost, bwUnits, colorCost, colorUnits,
+      rebate, rebatePerMonth, tradeIn,
+      leasingPeriod, residualValueAmt,
+      monthlyRepayment, residualPct,
+      clientMachines, clientBwUnits, clientBwCost, clientColorUnits, clientColorCost,
+    })
+    if (currentRecordId) {
+      const { error } = await supabase
+        .from('calculator_records')
+        .update({ client_name: clientName.trim(), data: snapshot, updated_at: new Date().toISOString() })
+        .eq('id', currentRecordId)
+      if (!error) { setSaveMsg('Saved ✓'); fetchRecords() }
+    } else {
+      const { data, error } = await supabase
+        .from('calculator_records')
+        .insert({ user_id: user.id, client_name: clientName.trim(), data: snapshot })
+        .select('id')
+        .single()
+      if (!error) { setCurrentRecordId(data.id); setSaveMsg('Saved ✓'); fetchRecords() }
+    }
+    setSaving(false)
+    setTimeout(() => setSaveMsg(''), 2500)
+  }
+
+  // --- Records: delete ---
+  const deleteRecord = async (id) => {
+    await supabase.from('calculator_records').delete().eq('id', id)
+    if (currentRecordId === id) newRecord()
+    fetchRecords()
+  }
 
   const handleCopierToggle = (type) => {
     setCopierType(type)
@@ -562,7 +704,8 @@ export default function Calculator() {
         </div>
       )}
 
-      <div className="flex items-start justify-between mb-6">
+      {/* Page header */}
+      <div className="flex items-start justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Calculator Proposal</h1>
           <p className="text-slate-400 text-sm mt-1">Photocopier Leasing Monthly Repayment</p>
@@ -579,6 +722,81 @@ export default function Calculator() {
           <span>Client's Current Setup</span>
           {hasClientProfile && <span className="w-2 h-2 rounded-full bg-white/70 inline-block" />}
         </button>
+      </div>
+
+      {/* ── Records bar ── */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm mb-6">
+        {/* Save row */}
+        <div className="flex items-center gap-3 px-4 py-3">
+          <input
+            type="text"
+            value={clientName}
+            onChange={e => setClientName(e.target.value)}
+            placeholder="Client name (required to save)"
+            className="flex-1 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-mint"
+          />
+          <button
+            onClick={saveRecord}
+            disabled={saving}
+            className="px-4 py-2 rounded-xl bg-brand-mint hover:bg-brand-mint-dark text-white text-sm font-semibold transition-colors disabled:opacity-60 whitespace-nowrap"
+          >
+            {saving ? 'Saving…' : currentRecordId ? '💾 Update' : '💾 Save'}
+          </button>
+          <button
+            onClick={newRecord}
+            className="px-4 py-2 rounded-xl border border-slate-300 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors whitespace-nowrap"
+          >
+            + New
+          </button>
+          {saveMsg && (
+            <span className={`text-xs font-medium ${saveMsg.includes('✓') || saveMsg.includes('loaded') ? 'text-green-600' : 'text-amber-600'}`}>
+              {saveMsg}
+            </span>
+          )}
+        </div>
+
+        {/* Saved records toggle */}
+        <button
+          onClick={() => setShowRecords(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-2.5 border-t border-slate-100 hover:bg-slate-50 transition-colors"
+        >
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+            📁 Saved Records {records.length > 0 && `(${records.length})`}
+          </span>
+          <span className="text-slate-400 text-xs">{showRecords ? '▲' : '▼'}</span>
+        </button>
+
+        {showRecords && (
+          <div className="border-t border-slate-100 divide-y divide-slate-100 max-h-72 overflow-y-auto">
+            {recordsLoading ? (
+              <div className="px-4 py-6 text-center text-sm text-slate-400">Loading…</div>
+            ) : records.length === 0 ? (
+              <div className="px-4 py-6 text-center text-sm text-slate-400">No saved records yet.</div>
+            ) : (
+              records.map(r => (
+                <div
+                  key={r.id}
+                  className={`flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors ${currentRecordId === r.id ? 'bg-brand-mint-light' : ''}`}
+                >
+                  <button className="flex-1 text-left" onClick={() => loadRecord(r)}>
+                    <p className={`text-sm font-semibold ${currentRecordId === r.id ? 'text-brand-mint-dark' : 'text-slate-700'}`}>
+                      {r.client_name}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {new Date(r.updated_at).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </button>
+                  <button
+                    onClick={() => { if (window.confirm(`Delete record for "${r.client_name}"?`)) deleteRecord(r.id) }}
+                    className="ml-3 text-xs text-red-400 hover:text-red-600 font-medium px-2 py-1"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

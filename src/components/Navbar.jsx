@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 
 const links = [
   { to: '/', label: 'Home' },
@@ -10,6 +11,7 @@ const links = [
 
 export default function Navbar() {
   const { pathname } = useLocation()
+  const { user, signOut } = useAuth()
   const [open, setOpen] = useState(false)
 
   return (
@@ -26,7 +28,7 @@ export default function Navbar() {
             />
           </Link>
 
-          {/* Desktop links */}
+          {/* Desktop links + user */}
           <div className="hidden md:flex items-center gap-1">
             {links.map(l => (
               <Link
@@ -41,6 +43,19 @@ export default function Navbar() {
                 {l.label}
               </Link>
             ))}
+
+            {/* User + Sign out */}
+            {user && (
+              <div className="flex items-center gap-2 ml-3 pl-3 border-l border-slate-200">
+                <span className="text-xs text-slate-400 max-w-[140px] truncate">{user.email}</span>
+                <button
+                  onClick={signOut}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-100 border border-slate-200 transition-colors"
+                >
+                  Sign out
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Burger — mobile only */}
@@ -72,6 +87,19 @@ export default function Navbar() {
                 {l.label}
               </Link>
             ))}
+
+            {/* Mobile sign out */}
+            {user && (
+              <div className="px-4 pt-2 pb-1 border-t border-slate-100 mt-2 flex items-center justify-between">
+                <span className="text-xs text-slate-400 truncate">{user.email}</span>
+                <button
+                  onClick={() => { signOut(); setOpen(false) }}
+                  className="text-xs font-medium text-slate-500 hover:text-red-500 transition-colors"
+                >
+                  Sign out
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
