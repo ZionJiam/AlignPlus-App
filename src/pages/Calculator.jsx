@@ -147,6 +147,46 @@ function buildSnapshot(state) {
   }
 }
 
+// Floor to nearest number whose ones digit is 0, 5, or 8  (e.g. 283 → 280, 287 → 285, 289 → 288)
+function niceFloor(n) {
+  const f = Math.floor(n)
+  const d = f % 10
+  if (d >= 8) return f - (d - 8)
+  if (d >= 5) return f - (d - 5)
+  return f - d
+}
+
+// Normalise a raw data object to the same shape as buildSnapshot (fills in defaults)
+function normalizeSnapshot(d) {
+  return buildSnapshot({
+    monthlyLease: d.monthlyLease ?? '',
+    monthsLeft: d.monthsLeft ?? '',
+    outstandingFinal: d.outstandingFinal ?? '',
+    machineCost: d.machineCost ?? '',
+    machineBrand: d.machineBrand ?? 'konica',
+    selectedMachine: d.selectedMachine ?? null,
+    copierType: d.copierType ?? 'big',
+    bwCost: d.bwCost ?? COPIER_PRESETS.big.bwCost,
+    bwUnits: d.bwUnits ?? '',
+    colorCost: d.colorCost ?? COPIER_PRESETS.big.colorCost,
+    colorUnits: d.colorUnits ?? '',
+    rebate: d.rebate ?? '',
+    rebatePerMonth: d.rebatePerMonth ?? 0,
+    tradeIn: d.tradeIn ?? '',
+    leasingPeriod: d.leasingPeriod ?? 60,
+    residualValueAmt: d.residualValueAmt ?? '',
+    monthlyRepayment: d.monthlyRepayment ?? '',
+    residualPct: d.residualPct ?? 25,
+    clientMachines: d.clientMachines ?? [{ id: 1, name: '', ownership: 'lease', purchaseCost: '', years: '5', monthlyLease: '', monthsLeft: '', finalPayment: '' }],
+    clientBwUnits: d.clientBwUnits ?? '',
+    clientBwCost: d.clientBwCost ?? '',
+    clientColorUnits: d.clientColorUnits ?? '',
+    clientColorCost: d.clientColorCost ?? '',
+  })
+}
+
+const BLANK_SNAPSHOT = JSON.stringify(normalizeSnapshot({}))
+
 export default function Calculator() {
   const { user } = useAuth()
   const { id } = useParams()          // 'new' or a record UUID
@@ -154,8 +194,10 @@ export default function Calculator() {
 
   // --- Record metadata ---
   const [clientName, setClientName] = useState('')
+  const [editingName, setEditingName] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+  const [cleanSnapshot, setCleanSnapshot] = useState(BLANK_SNAPSHOT)
 
   // --- Outstanding ---
   const [monthlyLease, setMonthlyLease] = useState('')
@@ -251,7 +293,8 @@ export default function Calculator() {
     setClientBwCost(d.clientBwCost ?? '')
     setClientColorUnits(d.clientColorUnits ?? '')
     setClientColorCost(d.clientColorCost ?? '')
-  }, [])
+    setCleanSnapshot(JSON.stringify(normalizeSnapshot(d)))
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (id && id !== 'new') {
@@ -286,7 +329,7 @@ export default function Calculator() {
         .from('calculator_records')
         .update({ client_name: clientName.trim(), data: snapshot, updated_at: new Date().toISOString() })
         .eq('id', id)
-      if (!error) setSaveMsg('Saved ✓')
+      if (!error) { setSaveMsg('Saved ✓'); setCleanSnapshot(JSON.stringify(snapshot)) }
     } else {
       const { data: inserted, error } = await supabase
         .from('calculator_records')
@@ -295,6 +338,7 @@ export default function Calculator() {
         .single()
       if (!error) {
         setSaveMsg('Saved ✓')
+        setCleanSnapshot(JSON.stringify(snapshot))
         navigate(`/calculator/${inserted.id}`, { replace: true })
       }
     }
@@ -307,6 +351,32 @@ export default function Calculator() {
     setBwCost(COPIER_PRESETS[type].bwCost)
     setColorCost(COPIER_PRESETS[type].colorCost)
   }
+
+  // --- Dirty tracking ---
+  const isDirty = useMemo(() => {
+    const current = JSON.stringify(buildSnapshot({
+      monthlyLease, monthsLeft, outstandingFinal,
+      machineCost, machineBrand, selectedMachine,
+      copierType, bwCost, bwUnits, colorCost, colorUnits,
+      rebate, rebatePerMonth, tradeIn,
+      leasingPeriod, residualValueAmt,
+      monthlyRepayment, residualPct,
+      clientMachines, clientBwUnits, clientBwCost, clientColorUnits, clientColorCost,
+    }))
+    return current !== cleanSnapshot
+  }, [cleanSnapshot, monthlyLease, monthsLeft, outstandingFinal,
+      machineCost, machineBrand, selectedMachine,
+      copierType, bwCost, bwUnits, colorCost, colorUnits,
+      rebate, rebatePerMonth, tradeIn,
+      leasingPeriod, residualValueAmt,
+      monthlyRepayment, residualPct,
+      clientMachines, clientBwUnits, clientBwCost, clientColorUnits, clientColorCost])
+
+  useEffect(() => {
+    const handler = (e) => { if (isDirty) { e.preventDefault(); e.returnValue = '' } }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [isDirty])
 
   const totalClientOutstanding = useMemo(() => {
     return clientMachines.reduce((sum, m) => {
@@ -415,23 +485,6 @@ export default function Calculator() {
   }, [monthlySavings, currentMonthlyCost])
 
   // --- Smart Quote Recommendation ---
-  // Floor: minimum monthly to break even (leasing formula)
-  const breakEvenMonthly = leasingMonthly
-  // Target: highest monthly that still saves client 25% (net of rebate)
-  const savingTarget25 = currentMonthlyCost > 0
-    ? currentMonthlyCost * 0.75 + rebateSavingPerMonth
-    : null
-  // Recommended: max we can charge while saving client 25%, capped at ceiling
-  const recommendedMonthly = savingTarget25 !== null
-    ? Math.min(savingTarget25, repaymentCeiling)
-    : repaymentCeiling
-  // Is the recommended quote profitable (above break-even)?
-  const quoteIsProfitable = recommendedMonthly >= breakEvenMonthly
-  // What % does client actually save at recommended monthly?
-  const recommendedNetCost = recommendedMonthly - rebateSavingPerMonth
-  const recommendedSavingPct = currentMonthlyCost > 0
-    ? ((currentMonthlyCost - recommendedNetCost) / currentMonthlyCost) * 100
-    : null
   // Helper: reverse leasing formula → principal financed from a given monthly amount
   const calcGTF = (monthly) => {
     if (!monthly) return 0
@@ -440,19 +493,37 @@ export default function Calculator() {
     const den = (1 + rvFraction) - (200 * rvFraction / (100 + K))
     return den > 0 ? num / den : 0
   }
+  // Floor: minimum monthly to break even (leasing formula)
+  const breakEvenMonthly = leasingMonthly
+  // Target: highest monthly that saves client ~25%, net of any existing rebate
+  const rawSavingTarget = currentMonthlyCost > 0
+    ? currentMonthlyCost * 0.75 + rebateSavingPerMonth
+    : null
+  const savingTarget25 = rawSavingTarget  // alias used in JSX
+  // Recommended: nice number ≤ target, capped at ceiling
+  const rawRecommendedMonthly = rawSavingTarget !== null
+    ? Math.min(rawSavingTarget, repaymentCeiling)
+    : repaymentCeiling
+  const recommendedMonthly = niceFloor(rawRecommendedMonthly)
+  // Is the recommended quote profitable (above break-even)?
+  const quoteIsProfitable = recommendedMonthly >= breakEvenMonthly
+  // What % does client actually save at this nice number?
+  const recommendedNetCost = recommendedMonthly - rebateSavingPerMonth
+  const recommendedSavingPct = currentMonthlyCost > 0
+    ? ((currentMonthlyCost - recommendedNetCost) / currentMonthlyCost) * 100
+    : null
   // Profit at recommended monthly
   const recommendedProfit = calcGTF(recommendedMonthly) - grandTotal
 
   // --- Ceiling + Rebate scenario (when quote is unprofitable) ---
-  // Push monthly to ceiling, then calculate rebate needed to still give client 25% saving
   const grandTotalExRebate = grandTotal - Math.abs(parseFloat(rebate) || 0)
-  const ceilMonthly = repaymentCeiling
-  // Rebate per month needed: ceiling − (client cost × 75%)
-  const ceilRebatePerMonth = currentMonthlyCost > 0
+  const ceilMonthly = niceFloor(repaymentCeiling)
+  // Rebate per month needed (rounded to $10 = $300 total increments) to save client ~25%
+  const rawCeilRebatePerMonth = currentMonthlyCost > 0
     ? Math.max(0, ceilMonthly - currentMonthlyCost * 0.75)
     : 0
+  const ceilRebatePerMonth = Math.round(rawCeilRebatePerMonth / 10) * 10
   const ceilRebateTotal = ceilRebatePerMonth * 30
-  // Grand total with this recommended rebate (swap out existing rebate for the new one)
   const ceilGrandTotal = grandTotalExRebate + ceilRebateTotal
   const ceilProfit = calcGTF(ceilMonthly) - ceilGrandTotal
   const ceilClientNetCost = ceilMonthly - ceilRebatePerMonth
@@ -679,43 +750,49 @@ export default function Calculator() {
         </div>
       )}
 
-      {/* Back + save bar */}
-      <div className="flex items-center gap-3 mb-5">
-        <button
-          onClick={() => navigate('/calculator')}
-          className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-brand-mint-dark transition-colors font-medium"
-        >
-          ← All Proposals
-        </button>
-        <div className="flex-1 h-px bg-slate-200" />
-        <input
-          type="text"
-          value={clientName}
-          onChange={e => setClientName(e.target.value)}
-          placeholder="Client name"
-          className="w-44 border border-slate-300 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-mint"
-        />
-        <button
-          onClick={saveRecord}
-          disabled={saving}
-          className="px-4 py-1.5 rounded-xl bg-brand-mint hover:bg-brand-mint-dark text-white text-sm font-semibold transition-colors disabled:opacity-60 whitespace-nowrap"
-        >
-          {saving ? 'Saving…' : id === 'new' ? '💾 Save' : '💾 Update'}
-        </button>
-        {saveMsg && (
-          <span className={`text-xs font-medium ${saveMsg.includes('✓') ? 'text-green-600' : 'text-amber-600'}`}>
-            {saveMsg}
-          </span>
-        )}
-      </div>
+      {/* Back button */}
+      <button
+        onClick={() => {
+          if (isDirty && !window.confirm('You have unsaved changes. Leave without saving?')) return
+          navigate('/calculator')
+        }}
+        className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-brand-mint-dark transition-colors font-medium mb-4"
+      >
+        ← All Proposals
+      </button>
 
       {/* Page header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">
-            {clientName || 'New Proposal'}
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">Photocopier Leasing Monthly Repayment</p>
+          {/* Inline-editable client name */}
+          {editingName ? (
+            <input
+              autoFocus
+              type="text"
+              value={clientName}
+              onChange={e => setClientName(e.target.value)}
+              onBlur={() => setEditingName(false)}
+              onKeyDown={e => { if (e.key === 'Enter') setEditingName(false) }}
+              placeholder="Client name"
+              className="text-2xl font-bold text-slate-800 bg-transparent border-b-2 border-brand-mint outline-none w-64"
+            />
+          ) : (
+            <button
+              onClick={() => setEditingName(true)}
+              className="group flex items-center gap-2"
+            >
+              <h1 className="text-2xl font-bold text-slate-800">
+                {clientName || 'New Proposal'}
+              </h1>
+              <span className="text-slate-300 group-hover:text-brand-mint transition-colors text-sm leading-none">✏️</span>
+            </button>
+          )}
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-slate-400 text-sm">Photocopier Leasing Monthly Repayment</p>
+            {isDirty && (
+              <span className="text-xs text-amber-500 font-medium">● Unsaved changes</span>
+            )}
+          </div>
         </div>
         <button
           onClick={() => setShowClientProfile(true)}
@@ -1196,6 +1273,204 @@ export default function Calculator() {
             )}
           </SectionCard>
 
+          {/* Smart Quote Recommendation */}
+          {grandTotal > 0 && leasingMonthly > 0 && (
+            <SectionCard title="💡 Smart Quote Recommendation">
+              {currentMonthlyCost === 0 && (
+                <div className="mb-4 flex flex-col items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-4 text-center">
+                  <p className="text-xs text-amber-700">
+                    Fill in <strong>Client's Current Setup</strong> to unlock personalised saving recommendations.
+                  </p>
+                  <button
+                    onClick={() => setShowClientProfile(true)}
+                    className="px-4 py-2 rounded-xl bg-brand-charcoal text-white text-sm font-semibold hover:bg-brand-charcoal-dark transition-colors"
+                  >
+                    👤 Open Client's Current Setup
+                  </button>
+                </div>
+              )}
+
+              {/* Three reference lines */}
+              <div className="space-y-2 mb-5">
+                <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500">🔴 Break-even (Floor)</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Min to cover leasing cost — below this = loss</p>
+                  </div>
+                  <span className="text-base font-bold text-slate-700">{fmt(breakEvenMonthly)}</span>
+                </div>
+
+                {repaymentCeiling > 0 && (
+                  <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500">🟡 Repayment Ceiling</p>
+                      <p className="text-xs text-slate-400 mt-0.5">(Outstanding + Machine × 3) ÷ 60</p>
+                    </div>
+                    <span className="text-base font-bold text-slate-700">{fmt(repaymentCeiling)}</span>
+                  </div>
+                )}
+
+                {savingTarget25 !== null && (
+                  <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-brand-mint-light border border-brand-mint">
+                    <div>
+                      <p className="text-xs font-semibold text-brand-mint-dark">🎯 25% Saving Target</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Client cost × 75% + rebate saving ({fmt(rebateSavingPerMonth)}/mo)
+                      </p>
+                    </div>
+                    <span className="text-base font-bold text-brand-mint-dark">{fmt(savingTarget25)}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Recommended quote */}
+              {quoteIsProfitable ? (
+                /* ✅ Profitable path — standard recommendation */
+                <div className="rounded-2xl overflow-hidden border-2 border-brand-mint">
+                  <div className="px-4 py-3 bg-brand-mint">
+                    <p className="text-white text-sm font-bold">✅ Recommended Quote</p>
+                    <p className="text-white/80 text-xs mt-0.5">Maximises your profit while saving client ≥25%</p>
+                  </div>
+                  <div className="p-4 bg-white">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <p className="text-xs text-slate-400">Monthly Repayment to Quote</p>
+                        <p className="text-3xl font-bold text-brand-charcoal mt-0.5">{fmt(recommendedMonthly)}</p>
+                      </div>
+                      {recommendedSavingPct !== null && (
+                        <div className={`text-center px-4 py-2 rounded-xl ${recommendedSavingPct >= 25 ? 'bg-green-100' : 'bg-amber-100'}`}>
+                          <p className={`text-2xl font-bold ${recommendedSavingPct >= 25 ? 'text-green-700' : 'text-amber-700'}`}>
+                            {recommendedSavingPct.toFixed(1)}%
+                          </p>
+                          <p className={`text-xs ${recommendedSavingPct >= 25 ? 'text-green-600' : 'text-amber-600'}`}>client saves</p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-2 text-sm">
+                      {currentMonthlyCost > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Client current cost</span>
+                          <span className="font-medium text-slate-700">{fmt(currentMonthlyCost)}/mo</span>
+                        </div>
+                      )}
+                      {currentMonthlyCost > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Client new net cost</span>
+                          <span className="font-medium text-green-600">{fmt(recommendedNetCost)}/mo</span>
+                        </div>
+                      )}
+                      {currentMonthlyCost > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Client saves</span>
+                          <span className="font-medium text-green-600">{fmt(currentMonthlyCost - recommendedNetCost)}/mo</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between border-t border-slate-100 pt-2 mt-1">
+                        <span className="text-slate-400">Your profit ({leasingPeriod}mo × {fmt(recommendedMonthly)} − Grand Total)</span>
+                        <span className="font-bold text-green-600">{fmt(recommendedProfit)}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setMonthlyRepayment(recommendedMonthly.toFixed(2))}
+                      className="mt-4 w-full py-2.5 rounded-xl bg-brand-charcoal text-white text-sm font-semibold hover:bg-brand-charcoal-dark transition-colors"
+                    >
+                      → Apply to Profit Calculator
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* ⚠️ Unprofitable path — push to ceiling + give rebate for 25% saving */
+                <div className="rounded-2xl overflow-hidden border-2 border-red-300">
+                  <div className="px-4 py-3 bg-red-500">
+                    <p className="text-white text-sm font-bold">⚠️ Deal is Tight — Best Possible Quote</p>
+                    <p className="text-white/80 text-xs mt-0.5">
+                      Charge the maximum ceiling &amp; offset with rebate to still give client 25% saving
+                    </p>
+                  </div>
+                  <div className="p-4 bg-white space-y-4">
+
+                    {/* Two-column: Monthly + Rebate */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-slate-50 rounded-xl px-3 py-3 text-center">
+                        <p className="text-xs text-slate-400 mb-1">Charge (ceiling)</p>
+                        <p className="text-2xl font-bold text-brand-charcoal">{fmt(ceilMonthly)}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">/month</p>
+                      </div>
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-3 text-center">
+                        <p className="text-xs text-amber-600 mb-1">Give Rebate</p>
+                        <p className="text-2xl font-bold text-amber-700">
+                          {ceilRebatePerMonth > 0 ? fmt(ceilRebatePerMonth) : '—'}
+                        </p>
+                        <p className="text-xs text-amber-500 mt-0.5">
+                          {ceilRebatePerMonth > 0 ? `/mo (${fmt(ceilRebateTotal)} total)` : 'none needed'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Client saving result */}
+                    {ceilSavingPct !== null && (
+                      <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                        <div>
+                          <p className="text-xs font-semibold text-green-700">Client Net Cost After Rebate</p>
+                          <p className="text-xs text-green-500 mt-0.5">
+                            {fmt(ceilMonthly)} − {fmt(ceilRebatePerMonth)}/mo rebate
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-bold text-green-700">{fmt(ceilClientNetCost)}/mo</p>
+                          <p className="text-xs text-green-500 font-semibold">saves {ceilSavingPct.toFixed(1)}%</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Cost breakdown */}
+                    <div className="space-y-2 text-sm border-t border-slate-100 pt-3">
+                      {currentMonthlyCost > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Client current cost</span>
+                          <span className="font-medium text-slate-700">{fmt(currentMonthlyCost)}/mo</span>
+                        </div>
+                      )}
+                      {ceilRebatePerMonth > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Rebate cost to you ({fmt(ceilRebateTotal)} total)</span>
+                          <span className="font-medium text-red-500">−{fmt(ceilRebateTotal)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between pt-1 border-t border-slate-100">
+                        <span className="text-slate-500 font-medium">Your profit</span>
+                        <span className={`font-bold ${ceilProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                          {fmt(ceilProfit)}
+                          {ceilProfit < 0 && <span className="text-xs font-normal ml-1">(loss)</span>}
+                        </span>
+                      </div>
+                    </div>
+
+                    {ceilProfit < 0 && (
+                      <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-600">
+                        <p className="font-semibold mb-0.5">⚠️ This deal results in a loss</p>
+                        <p>Even at the maximum ceiling with optimal rebate, costs exceed revenue. Consider renegotiating the machine price or outstanding amount.</p>
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setMonthlyRepayment(ceilMonthly.toFixed(2))
+                        if (ceilRebatePerMonth > 0) {
+                          setRebate(String(-(ceilRebateTotal)))
+                          setRebatePerMonth(Math.min(500, Math.round(ceilRebatePerMonth / 10) * 10))
+                        }
+                      }}
+                      className="w-full py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors"
+                    >
+                      → Apply Ceiling + Rebate to Calculator
+                    </button>
+                  </div>
+                </div>
+              )}
+            </SectionCard>
+          )}
+
           {/* Profit */}
           <SectionCard title="8. Profit Calculator">
             {currentMonthlyCost > 0 && (
@@ -1382,197 +1657,23 @@ export default function Calculator() {
                 )}
               </div>
             )}
+
+            {/* Save / Update */}
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                onClick={saveRecord}
+                className="flex-1 py-3 rounded-xl bg-brand-mint hover:bg-brand-mint-dark text-white font-semibold text-sm transition-colors shadow-sm"
+              >
+                {id && id !== 'new' ? 'Update Proposal' : 'Save Proposal'}
+              </button>
+              {saveMsg && (
+                <span className={`text-sm font-medium ${saveMsg.startsWith('Saved') ? 'text-brand-mint-dark' : 'text-red-500'}`}>
+                  {saveMsg}
+                </span>
+              )}
+            </div>
           </SectionCard>
 
-          {/* Smart Quote Recommendation */}
-          {grandTotal > 0 && leasingMonthly > 0 && (
-            <SectionCard title="💡 Smart Quote Recommendation">
-              {currentMonthlyCost === 0 && (
-                <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700">
-                  Fill in <strong>Client's Current Setup</strong> to unlock personalised saving recommendations.
-                </div>
-              )}
-
-              {/* Three reference lines */}
-              <div className="space-y-2 mb-5">
-                <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                  <div>
-                    <p className="text-xs font-semibold text-slate-500">🔴 Break-even (Floor)</p>
-                    <p className="text-xs text-slate-400 mt-0.5">Min to cover leasing cost — below this = loss</p>
-                  </div>
-                  <span className="text-base font-bold text-slate-700">{fmt(breakEvenMonthly)}</span>
-                </div>
-
-                {repaymentCeiling > 0 && (
-                  <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <div>
-                      <p className="text-xs font-semibold text-slate-500">🟡 Repayment Ceiling</p>
-                      <p className="text-xs text-slate-400 mt-0.5">(Outstanding + Machine × 3) ÷ 60</p>
-                    </div>
-                    <span className="text-base font-bold text-slate-700">{fmt(repaymentCeiling)}</span>
-                  </div>
-                )}
-
-                {savingTarget25 !== null && (
-                  <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-brand-mint-light border border-brand-mint">
-                    <div>
-                      <p className="text-xs font-semibold text-brand-mint-dark">🎯 25% Saving Target</p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Client cost × 75% + rebate saving ({fmt(rebateSavingPerMonth)}/mo)
-                      </p>
-                    </div>
-                    <span className="text-base font-bold text-brand-mint-dark">{fmt(savingTarget25)}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Recommended quote */}
-              {quoteIsProfitable ? (
-                /* ✅ Profitable path — standard recommendation */
-                <div className="rounded-2xl overflow-hidden border-2 border-brand-mint">
-                  <div className="px-4 py-3 bg-brand-mint">
-                    <p className="text-white text-sm font-bold">✅ Recommended Quote</p>
-                    <p className="text-white/80 text-xs mt-0.5">Maximises your profit while saving client ≥25%</p>
-                  </div>
-                  <div className="p-4 bg-white">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <p className="text-xs text-slate-400">Monthly Repayment to Quote</p>
-                        <p className="text-3xl font-bold text-brand-charcoal mt-0.5">{fmt(recommendedMonthly)}</p>
-                      </div>
-                      {recommendedSavingPct !== null && (
-                        <div className={`text-center px-4 py-2 rounded-xl ${recommendedSavingPct >= 25 ? 'bg-green-100' : 'bg-amber-100'}`}>
-                          <p className={`text-2xl font-bold ${recommendedSavingPct >= 25 ? 'text-green-700' : 'text-amber-700'}`}>
-                            {recommendedSavingPct.toFixed(1)}%
-                          </p>
-                          <p className={`text-xs ${recommendedSavingPct >= 25 ? 'text-green-600' : 'text-amber-600'}`}>client saves</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-2 text-sm">
-                      {currentMonthlyCost > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Client current cost</span>
-                          <span className="font-medium text-slate-700">{fmt(currentMonthlyCost)}/mo</span>
-                        </div>
-                      )}
-                      {currentMonthlyCost > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Client new net cost</span>
-                          <span className="font-medium text-green-600">{fmt(recommendedNetCost)}/mo</span>
-                        </div>
-                      )}
-                      {currentMonthlyCost > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Client saves</span>
-                          <span className="font-medium text-green-600">{fmt(currentMonthlyCost - recommendedNetCost)}/mo</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between border-t border-slate-100 pt-2 mt-1">
-                        <span className="text-slate-400">Your profit ({leasingPeriod}mo × {fmt(recommendedMonthly)} − Grand Total)</span>
-                        <span className="font-bold text-green-600">{fmt(recommendedProfit)}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setMonthlyRepayment(recommendedMonthly.toFixed(2))}
-                      className="mt-4 w-full py-2.5 rounded-xl bg-brand-charcoal text-white text-sm font-semibold hover:bg-brand-charcoal-dark transition-colors"
-                    >
-                      → Apply to Profit Calculator
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                /* ⚠️ Unprofitable path — push to ceiling + give rebate for 25% saving */
-                <div className="rounded-2xl overflow-hidden border-2 border-red-300">
-                  <div className="px-4 py-3 bg-red-500">
-                    <p className="text-white text-sm font-bold">⚠️ Deal is Tight — Best Possible Quote</p>
-                    <p className="text-white/80 text-xs mt-0.5">
-                      Charge the maximum ceiling &amp; offset with rebate to still give client 25% saving
-                    </p>
-                  </div>
-                  <div className="p-4 bg-white space-y-4">
-
-                    {/* Two-column: Monthly + Rebate */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-slate-50 rounded-xl px-3 py-3 text-center">
-                        <p className="text-xs text-slate-400 mb-1">Charge (ceiling)</p>
-                        <p className="text-2xl font-bold text-brand-charcoal">{fmt(ceilMonthly)}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">/month</p>
-                      </div>
-                      <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-3 text-center">
-                        <p className="text-xs text-amber-600 mb-1">Give Rebate</p>
-                        <p className="text-2xl font-bold text-amber-700">
-                          {ceilRebatePerMonth > 0 ? fmt(ceilRebatePerMonth) : '—'}
-                        </p>
-                        <p className="text-xs text-amber-500 mt-0.5">
-                          {ceilRebatePerMonth > 0 ? `/mo (${fmt(ceilRebateTotal)} total)` : 'none needed'}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Client saving result */}
-                    {ceilSavingPct !== null && (
-                      <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
-                        <div>
-                          <p className="text-xs font-semibold text-green-700">Client Net Cost After Rebate</p>
-                          <p className="text-xs text-green-500 mt-0.5">
-                            {fmt(ceilMonthly)} − {fmt(ceilRebatePerMonth)}/mo rebate
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-lg font-bold text-green-700">{fmt(ceilClientNetCost)}/mo</p>
-                          <p className="text-xs text-green-500 font-semibold">saves {ceilSavingPct.toFixed(1)}%</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Cost breakdown */}
-                    <div className="space-y-2 text-sm border-t border-slate-100 pt-3">
-                      {currentMonthlyCost > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Client current cost</span>
-                          <span className="font-medium text-slate-700">{fmt(currentMonthlyCost)}/mo</span>
-                        </div>
-                      )}
-                      {ceilRebatePerMonth > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Rebate cost to you ({fmt(ceilRebateTotal)} total)</span>
-                          <span className="font-medium text-red-500">−{fmt(ceilRebateTotal)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between pt-1 border-t border-slate-100">
-                        <span className="text-slate-500 font-medium">Your profit</span>
-                        <span className={`font-bold ${ceilProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                          {fmt(ceilProfit)}
-                          {ceilProfit < 0 && <span className="text-xs font-normal ml-1">(loss)</span>}
-                        </span>
-                      </div>
-                    </div>
-
-                    {ceilProfit < 0 && (
-                      <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-600">
-                        <p className="font-semibold mb-0.5">⚠️ This deal results in a loss</p>
-                        <p>Even at the maximum ceiling with optimal rebate, costs exceed revenue. Consider renegotiating the machine price or outstanding amount.</p>
-                      </div>
-                    )}
-
-                    <button
-                      onClick={() => {
-                        setMonthlyRepayment(ceilMonthly.toFixed(2))
-                        if (ceilRebatePerMonth > 0) {
-                          setRebate(String(-(ceilRebateTotal)))
-                          setRebatePerMonth(Math.min(500, Math.round(ceilRebatePerMonth / 10) * 10))
-                        }
-                      }}
-                      className="w-full py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors"
-                    >
-                      → Apply Ceiling + Rebate to Calculator
-                    </button>
-                  </div>
-                </div>
-              )}
-            </SectionCard>
-          )}
         </div>
       </div>
     </div>
