@@ -2,38 +2,11 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { MACHINE_CATALOGUE } from '../data/machines'
 
 const COPIER_PRESETS = {
   small: { bwCost: 0.015, colorCost: 0.24 },
   big: { bwCost: 0.008, colorCost: 0.13 },
-}
-
-const MACHINE_CATALOGUE = {
-  konica: [
-    { name: '3550i (Rebuilt)', cost: 2800 },
-    { name: '300i (Rebuilt)', cost: 5000 },
-    { name: '458 (Rebuilt)', cost: 4500 },
-    { name: '360i (Rebuilt)', cost: 5300 },
-    { name: '450i (Rebuilt)', cost: 9300 },
-    { name: '550i (Rebuilt)', cost: 7300 },
-    { name: '558 (Rebuilt)', cost: 4800 },
-    { name: 'C250i (Rebuilt)', cost: 4300 },
-  ],
-  fujifilm: [
-    { name: '3570 (Rebuilt)', cost: 4500 },
-    { name: 'C4570 (Rebuilt)', cost: 6500 },
-  ],
-  fujifilm_new: [
-    { name: 'C3061', cost: 6500 },
-    { name: 'C3567', cost: 6500 },
-    { name: 'C35571', cost: 11300 },
-  ],
-  epson: [
-    { name: 'SC-T3130', cost: 6200 },
-    { name: 'SC-T3435', cost: 7500 },
-    { name: 'SC-T5130', cost: 7200 },
-    { name: 'SC-T5130M', cost: 8000 },
-  ],
 }
 
 function SectionCard({ title, children, collapsible = false, open, onToggle, summary }) {
@@ -788,7 +761,7 @@ export default function Calculator() {
             </button>
           )}
           <div className="flex items-center gap-2 mt-1">
-            <p className="text-slate-400 text-sm">Photocopier Leasing Monthly Repayment</p>
+            <p className="text-slate-400 text-sm">Leasing Proposal</p>
             {isDirty && (
               <span className="text-xs text-amber-500 font-medium">● Unsaved changes</span>
             )}
@@ -819,7 +792,7 @@ export default function Calculator() {
                   <span className="text-xs bg-brand-mint-light text-brand-mint-dark font-semibold px-2 py-0.5 rounded-full">
                     👤 From Client Setup
                   </span>
-                  <span className="text-xs text-slate-400">auto-calculated from machines</span>
+                  <span className="text-xs text-slate-400">from client setup</span>
                 </div>
                 <div className="border border-slate-200 rounded-xl overflow-hidden mb-3">
                   <div className="bg-slate-50 px-4 py-2 border-b border-slate-200">
@@ -1475,12 +1448,7 @@ export default function Calculator() {
           <SectionCard title="8. Profit Calculator">
             {currentMonthlyCost > 0 && (
               <div className="mb-4 bg-slate-100 rounded-xl px-4 py-3 flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Client's Current Monthly Cost</p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {`Machine cost + Print (${clientMachines.filter(m=>m.name).map(m=>m.name).join(', ') || 'client machines'})`}
-                  </p>
-                </div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Client's Current Monthly Cost</p>
                 <span className="text-xl font-bold text-slate-700">{fmt(currentMonthlyCost)}</span>
               </div>
             )}
@@ -1501,16 +1469,15 @@ export default function Calculator() {
                       {rebateSavingPerMonth > 0 ? 'Net Cost Per Month' : 'New Monthly Cost'}
                       {currentMonthlyCost > 0 && (
                         <span className={`ml-2 px-1.5 py-0.5 rounded text-xs font-bold ${saving ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
-                          {saving ? '▼' : '▲'} {Math.abs(pct).toFixed(1)}%
+                          {saving ? '▼' : '▲'} {Math.abs(pct).toFixed(1)}% · {saving ? '-' : '+'}{fmt(Math.abs(diff))}/mo
                         </span>
                       )}
                     </p>
-                    <p className={`text-xs mt-0.5 ${saving ? 'text-green-500' : 'text-red-500'}`}>
-                      {saving
-                        ? `Saves client ${fmt(diff)}/mo vs current`
-                        : `${fmt(Math.abs(diff))}/mo more than current`}
-                      {rebateSavingPerMonth > 0 && ` · after ${fmt(rebateSavingPerMonth)} rebate saving`}
-                    </p>
+                    {rebateSavingPerMonth > 0 && (
+                      <p className={`text-xs mt-0.5 ${saving ? 'text-green-500' : 'text-red-500'}`}>
+                        after {fmt(rebateSavingPerMonth)} rebate saving
+                      </p>
+                    )}
                   </div>
                   <span className={`text-xl font-bold ${saving ? 'text-green-700' : 'text-red-700'}`}>{fmt(compareVal)}</span>
                 </div>
@@ -1563,11 +1530,6 @@ export default function Calculator() {
                   {fmt(profit)}
                 </span>
               </div>
-            </div>
-
-            <div className="mt-4 text-xs text-slate-400 leading-relaxed">
-              Grand Total Financed = principal the client actually borrows (reverse of leasing formula) &nbsp;|&nbsp;
-              Profit = Grand Total Financed − Grand Total Price
             </div>
 
             {(outstanding > 0 || (parseFloat(machineCost) || 0) > 0) && (
