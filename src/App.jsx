@@ -4,6 +4,7 @@ import Navbar from './components/Navbar'
 import ProtectedRoute from './components/ProtectedRoute'
 import Home from './pages/Home'
 import Leads from './pages/Leads'
+import CalculatorList from './pages/CalculatorList'
 import Calculator from './pages/Calculator'
 import Catalogue from './pages/Catalogue'
 import Login from './pages/Login'
@@ -26,7 +27,8 @@ export default function App() {
                   <Routes>
                     <Route path="/" element={<Home />} />
                     <Route path="/leads" element={<Leads />} />
-                    <Route path="/calculator" element={<Calculator />} />
+                    <Route path="/calculator" element={<CalculatorList />} />
+                    <Route path="/calculator/:id" element={<Calculator />} />
                     <Route path="/catalogue" element={<Catalogue />} />
                   </Routes>
                 </main>
