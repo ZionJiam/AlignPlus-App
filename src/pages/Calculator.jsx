@@ -117,7 +117,17 @@ function buildSnapshot(state) {
     clientBwCost: state.clientBwCost,
     clientColorUnits: state.clientColorUnits,
     clientColorCost: state.clientColorCost,
+    monthsLeftEnd: state.monthsLeftEnd,
   }
+}
+
+// Calculate months remaining from a "YYYY-MM" end date string vs today
+function calcMonthsLeft(leaseEnd) {
+  if (!leaseEnd) return ''
+  const [yyyy, mm] = leaseEnd.split('-').map(Number)
+  const now = new Date()
+  const diff = (yyyy - now.getFullYear()) * 12 + (mm - (now.getMonth() + 1))
+  return String(Math.max(0, diff))
 }
 
 // Floor to nearest number whose ones digit is 0, 5, or 8  (e.g. 283 → 280, 287 → 285, 289 → 288)
@@ -150,11 +160,12 @@ function normalizeSnapshot(d) {
     residualValueAmt: d.residualValueAmt ?? '',
     monthlyRepayment: d.monthlyRepayment ?? '',
     residualPct: d.residualPct ?? 25,
-    clientMachines: d.clientMachines ?? [{ id: 1, name: '', ownership: 'lease', purchaseCost: '', years: '5', monthlyLease: '', monthsLeft: '', finalPayment: '' }],
+    clientMachines: d.clientMachines ?? [{ id: 1, name: '', ownership: 'lease', purchaseCost: '', years: '5', monthlyLease: '', monthsLeft: '', finalPayment: '', leaseEnd: '' }],
     clientBwUnits: d.clientBwUnits ?? '',
     clientBwCost: d.clientBwCost ?? '',
     clientColorUnits: d.clientColorUnits ?? '',
     clientColorCost: d.clientColorCost ?? '',
+    monthsLeftEnd: d.monthsLeftEnd ?? '',
   })
 }
 
@@ -175,6 +186,7 @@ export default function Calculator() {
   // --- Outstanding ---
   const [monthlyLease, setMonthlyLease] = useState('')
   const [monthsLeft, setMonthsLeft] = useState('')
+  const [monthsLeftEnd, setMonthsLeftEnd] = useState('')  // "YYYY-MM" end date for Section 1
   const [outstandingFinal, setOutstandingFinal] = useState('')
 
   // --- Machine ---
@@ -218,7 +230,7 @@ export default function Calculator() {
   // --- Client Profile ---
   const [showClientProfile, setShowClientProfile] = useState(false)
   const [clientMachines, setClientMachines] = useState([
-    { id: 1, name: '', ownership: 'lease', purchaseCost: '', years: '5', monthlyLease: '', monthsLeft: '', finalPayment: '' }
+    { id: 1, name: '', ownership: 'lease', purchaseCost: '', years: '5', monthlyLease: '', monthsLeft: '', finalPayment: '', leaseEnd: '' }
   ])
   const [clientBwUnits, setClientBwUnits] = useState('')
   const [clientBwCost, setClientBwCost] = useState('')
@@ -227,7 +239,7 @@ export default function Calculator() {
 
   const addClientMachine = () => setClientMachines(prev => [
     ...prev,
-    { id: Date.now(), name: '', ownership: 'lease', purchaseCost: '', years: '5', monthlyLease: '', monthsLeft: '', finalPayment: '' }
+    { id: Date.now(), name: '', ownership: 'lease', purchaseCost: '', years: '5', monthlyLease: '', monthsLeft: '', finalPayment: '', leaseEnd: '' }
   ])
   const removeClientMachine = (id) => setClientMachines(prev => prev.filter(m => m.id !== id))
   const updateClientMachine = (id, field, value) => setClientMachines(prev =>
@@ -236,6 +248,11 @@ export default function Calculator() {
 
   // --- Comparison ---
   const [showComparison, setShowComparison] = useState(false)
+
+  // --- Smart Quote tool (UI only, not snapshotted) ---
+  const [quoteMode, setQuoteMode] = useState('no-rebate')
+  const [quoteSavingPct, setQuoteSavingPct] = useState(25)
+  const [quoteChargeRaw, setQuoteChargeRaw] = useState(0) // 0 = default to ceiling
 
   // --- Collapsible sections ---
   const [showGrandTotal, setShowGrandTotal] = useState(false)
@@ -261,11 +278,12 @@ export default function Calculator() {
     setResidualValueAmt(d.residualValueAmt ?? '')
     setMonthlyRepayment(d.monthlyRepayment ?? '')
     setResidualPct(d.residualPct ?? 25)
-    setClientMachines(d.clientMachines ?? [{ id: 1, name: '', ownership: 'lease', purchaseCost: '', years: '5', monthlyLease: '', monthsLeft: '', finalPayment: '' }])
+    setClientMachines(d.clientMachines ?? [{ id: 1, name: '', ownership: 'lease', purchaseCost: '', years: '5', monthlyLease: '', monthsLeft: '', finalPayment: '', leaseEnd: '' }])
     setClientBwUnits(d.clientBwUnits ?? '')
     setClientBwCost(d.clientBwCost ?? '')
     setClientColorUnits(d.clientColorUnits ?? '')
     setClientColorCost(d.clientColorCost ?? '')
+    setMonthsLeftEnd(d.monthsLeftEnd ?? '')
     setCleanSnapshot(JSON.stringify(normalizeSnapshot(d)))
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -335,15 +353,17 @@ export default function Calculator() {
       leasingPeriod, residualValueAmt,
       monthlyRepayment, residualPct,
       clientMachines, clientBwUnits, clientBwCost, clientColorUnits, clientColorCost,
+      monthsLeftEnd,
     }))
     return current !== cleanSnapshot
   }, [cleanSnapshot, monthlyLease, monthsLeft, outstandingFinal,
-      machineCost, machineBrand, selectedMachine,
-      copierType, bwCost, bwUnits, colorCost, colorUnits,
-      rebate, rebatePerMonth, tradeIn,
-      leasingPeriod, residualValueAmt,
-      monthlyRepayment, residualPct,
-      clientMachines, clientBwUnits, clientBwCost, clientColorUnits, clientColorCost])
+    machineCost, machineBrand, selectedMachine,
+    copierType, bwCost, bwUnits, colorCost, colorUnits,
+    rebate, rebatePerMonth, tradeIn,
+    leasingPeriod, residualValueAmt,
+    monthlyRepayment, residualPct,
+    clientMachines, clientBwUnits, clientBwCost, clientColorUnits, clientColorCost,
+    monthsLeftEnd])
 
   useEffect(() => {
     const handler = (e) => { if (isDirty) { e.preventDefault(); e.returnValue = '' } }
@@ -432,7 +452,7 @@ export default function Calculator() {
 
   const clientMonthlyPrintCost = useMemo(() => {
     return (parseFloat(clientBwCost) || 0) * (parseFloat(clientBwUnits) || 0) +
-           (parseFloat(clientColorCost) || 0) * (parseFloat(clientColorUnits) || 0)
+      (parseFloat(clientColorCost) || 0) * (parseFloat(clientColorUnits) || 0)
   }, [clientBwCost, clientBwUnits, clientColorCost, clientColorUnits])
 
   const currentMonthlyCost = useMemo(() => {
@@ -504,6 +524,35 @@ export default function Calculator() {
     ? ((currentMonthlyCost - ceilClientNetCost) / currentMonthlyCost) * 100
     : null
 
+  // --- Interactive Smart Quote tool ---
+  const quoteCharge = quoteChargeRaw > 0 ? quoteChargeRaw : ceilMonthly
+
+  // No-rebate path: slider drives saving %, output is a nice monthly number
+  const noRebateMonthly = currentMonthlyCost > 0
+    ? niceFloor(currentMonthlyCost * (1 - quoteSavingPct / 100))
+    : 0
+  const noRebateActualSavingPct = currentMonthlyCost > 0 && noRebateMonthly > 0
+    ? ((currentMonthlyCost - noRebateMonthly) / currentMonthlyCost) * 100
+    : 0
+  const noRebateProfit = grandTotal > 0 ? calcGTF(noRebateMonthly) - grandTotal : 0
+
+  // Rebate path: two sliders — saving % + monthly charge
+  const rebateTargetNetCost = currentMonthlyCost * (1 - quoteSavingPct / 100)
+  const rawQuoteRebatePerMonth = Math.max(0, quoteCharge - rebateTargetNetCost)
+  const quoteRebatePerMonth = Math.round(rawQuoteRebatePerMonth / 10) * 10
+  const quoteRebateTotal = quoteRebatePerMonth * 30
+  const quoteClientNet = quoteCharge - quoteRebatePerMonth
+  const quoteClientSavingPct = currentMonthlyCost > 0
+    ? ((currentMonthlyCost - quoteClientNet) / currentMonthlyCost) * 100
+    : 0
+  const quoteRebateProfit = grandTotal > 0
+    ? calcGTF(quoteCharge) - (grandTotalExRebate + quoteRebateTotal)
+    : 0
+
+  // Slider range for the repayment charge slider
+  const chargeSliderMin = Math.max(50, Math.round((breakEvenMonthly || 50) / 10) * 10)
+  const chargeSliderMax = Math.max(chargeSliderMin + 10, Math.round((repaymentCeiling || chargeSliderMin + 500) / 10) * 10)
+
   return (
     <div>
       {/* Client Profile Drawer */}
@@ -573,11 +622,10 @@ export default function Calculator() {
                             <button
                               key={o.key}
                               onClick={() => updateClientMachine(m.id, 'ownership', o.key)}
-                              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
-                                m.ownership === o.key
-                                  ? 'bg-brand-charcoal text-white border-brand-charcoal'
-                                  : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-                              }`}
+                              className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${m.ownership === o.key
+                                ? 'bg-brand-charcoal text-white border-brand-charcoal'
+                                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+                                }`}
                             >
                               {o.label}
                             </button>
@@ -614,8 +662,60 @@ export default function Calculator() {
                               <NumInput value={m.monthlyLease} onChange={v => updateClientMachine(m.id, 'monthlyLease', v)} prefix="$" placeholder="200" />
                             </div>
                             <div>
-                              <label className="block text-xs text-slate-500 mb-1">Months Remaining</label>
-                              <NumInput value={m.monthsLeft} onChange={v => updateClientMachine(m.id, 'monthsLeft', v)} placeholder="23" />
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-xs text-slate-500">Months Remaining</label>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (m.leaseEnd) {
+                                      updateClientMachine(m.id, 'leaseEnd', '')
+                                    } else {
+                                      const now = new Date()
+                                      const defaultEnd = `${now.getFullYear()}-${String(now.getMonth() + 2).padStart(2, '0')}`
+                                      updateClientMachine(m.id, 'leaseEnd', defaultEnd)
+                                      updateClientMachine(m.id, 'monthsLeft', calcMonthsLeft(defaultEnd))
+                                    }
+                                  }}
+                                  className="text-xs text-brand-mint-dark hover:underline"
+                                >
+                                  {m.leaseEnd ? '✏️' : '📅'}
+                                </button>
+                              </div>
+                              {m.leaseEnd ? (
+                                <div className="flex gap-1">
+                                  <select
+                                    value={m.leaseEnd.split('-')[1] || ''}
+                                    onChange={e => {
+                                      const updated = `${m.leaseEnd.split('-')[0]}-${e.target.value}`
+                                      updateClientMachine(m.id, 'leaseEnd', updated)
+                                      updateClientMachine(m.id, 'monthsLeft', calcMonthsLeft(updated))
+                                    }}
+                                    className="w-1/2 border border-slate-300 rounded-lg px-1.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-mint"
+                                  >
+                                    {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((mo, i) => (
+                                      <option key={mo} value={mo}>{['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][i]}</option>
+                                    ))}
+                                  </select>
+                                  <select
+                                    value={m.leaseEnd.split('-')[0] || ''}
+                                    onChange={e => {
+                                      const updated = `${e.target.value}-${m.leaseEnd.split('-')[1]}`
+                                      updateClientMachine(m.id, 'leaseEnd', updated)
+                                      updateClientMachine(m.id, 'monthsLeft', calcMonthsLeft(updated))
+                                    }}
+                                    className="w-1/2 border border-slate-300 rounded-lg px-1.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-mint"
+                                  >
+                                    {Array.from({ length: 9 }, (_, i) => new Date().getFullYear() + i).map(y => (
+                                      <option key={y} value={y}>{y}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              ) : (
+                                <NumInput value={m.monthsLeft} onChange={v => updateClientMachine(m.id, 'monthsLeft', v)} placeholder="23" />
+                              )}
+                              {m.leaseEnd && m.monthsLeft !== '' && (
+                                <p className="text-xs text-brand-mint-dark mt-0.5">{m.monthsLeft} months</p>
+                              )}
                             </div>
                           </div>
                           <div>
@@ -626,7 +726,7 @@ export default function Calculator() {
                             <div className="bg-slate-50 rounded-lg px-3 py-1.5 text-xs text-slate-500 flex justify-between">
                               <span>Machine outstanding</span>
                               <span className="font-semibold text-slate-700">
-                                {fmt((parseFloat(m.finalPayment)||0) + (parseFloat(m.monthlyLease)||0) * (parseFloat(m.monthsLeft)||0))}
+                                {fmt((parseFloat(m.finalPayment) || 0) + (parseFloat(m.monthlyLease) || 0) * (parseFloat(m.monthsLeft) || 0))}
                               </span>
                             </div>
                           )}
@@ -769,11 +869,10 @@ export default function Calculator() {
         </div>
         <button
           onClick={() => setShowClientProfile(true)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium shadow-sm border transition-colors ${
-            hasClientProfile
-              ? 'bg-brand-charcoal text-white border-brand-charcoal hover:bg-brand-charcoal-dark'
-              : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-          }`}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium shadow-sm border transition-colors ${hasClientProfile
+            ? 'bg-brand-charcoal text-white border-brand-charcoal hover:bg-brand-charcoal-dark'
+            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
+            }`}
         >
           <span>👤</span>
           <span>Client's Current Setup</span>
@@ -831,9 +930,62 @@ export default function Calculator() {
                   <Field label="Monthly Lease ($)">
                     <NumInput value={monthlyLease} onChange={setMonthlyLease} prefix="$" placeholder="200" />
                   </Field>
-                  <Field label="Months Remaining">
-                    <NumInput value={monthsLeft} onChange={setMonthsLeft} placeholder="23" />
-                  </Field>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-sm font-medium text-slate-600">Months Remaining</label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (monthsLeftEnd) {
+                            setMonthsLeftEnd('')
+                          } else {
+                            const now = new Date()
+                            const defaultEnd = `${now.getFullYear()}-${String(now.getMonth() + 2).padStart(2, '0')}`
+                            setMonthsLeftEnd(defaultEnd)
+                            setMonthsLeft(calcMonthsLeft(defaultEnd))
+                          }
+                        }}
+                        className="text-xs text-brand-mint-dark hover:underline"
+                      >
+                        {monthsLeftEnd ? '✏️ Enter manually' : '📅 Pick end date'}
+                      </button>
+                    </div>
+                    {monthsLeftEnd ? (
+                      <div className="flex gap-2">
+                        <select
+                          value={monthsLeftEnd.split('-')[1] || ''}
+                          onChange={e => {
+                            const updated = `${monthsLeftEnd.split('-')[0]}-${e.target.value}`
+                            setMonthsLeftEnd(updated)
+                            setMonthsLeft(calcMonthsLeft(updated))
+                          }}
+                          className="flex-1 border border-slate-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-mint"
+                        >
+                          {['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'].map((m, i) => (
+                            <option key={m} value={m}>{['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][i]}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={monthsLeftEnd.split('-')[0] || ''}
+                          onChange={e => {
+                            const updated = `${e.target.value}-${monthsLeftEnd.split('-')[1]}`
+                            setMonthsLeftEnd(updated)
+                            setMonthsLeft(calcMonthsLeft(updated))
+                          }}
+                          className="flex-1 border border-slate-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-mint"
+                        >
+                          {Array.from({ length: 9 }, (_, i) => new Date().getFullYear() + i).map(y => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : (
+                      <NumInput value={monthsLeft} onChange={setMonthsLeft} placeholder="23" />
+                    )}
+                    {monthsLeftEnd && monthsLeft !== '' && (
+                      <p className="text-xs text-brand-mint-dark mt-1">{monthsLeft} months remaining</p>
+                    )}
+                  </div>
                 </div>
                 <Field label="Outstanding Final Payment ($)">
                   <NumInput value={outstandingFinal} onChange={setOutstandingFinal} prefix="$" placeholder="3000" />
@@ -889,35 +1041,33 @@ export default function Calculator() {
             )}
             <div className="grid grid-cols-2 gap-2 mb-4">
               {[
-                { key: 'konica',       label: 'Konica Minolta',    sub: 'Rebuilt' },
-                { key: 'fujifilm',     label: 'FujiFilm',          sub: 'Rebuilt' },
-                { key: 'fujifilm_new', label: 'FujiFilm',          sub: 'Brand New' },
-                { key: 'epson',        label: 'Epson',              sub: 'Brand New' },
+                { key: 'konica', label: 'Konica Minolta', sub: 'Rebuilt' },
+                { key: 'fujifilm', label: 'FujiFilm', sub: 'Rebuilt' },
+                { key: 'fujifilm_new', label: 'FujiFilm', sub: 'Brand New' },
+                { key: 'epson', label: 'Epson', sub: 'Brand New' },
               ].map(b => (
                 <button
                   key={b.key}
                   onClick={() => { setMachineBrand(b.key); setSelectedMachine(null) }}
-                  className={`px-3 py-2 rounded-xl text-sm font-medium transition-colors text-left border ${
-                    machineBrand === b.key
-                      ? 'bg-brand-mint text-white border-brand-mint'
-                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-brand-mint hover:bg-brand-mint-light hover:text-brand-mint-dark'
-                  }`}
+                  className={`px-3 py-2 rounded-xl text-sm font-medium transition-colors text-left border ${machineBrand === b.key
+                    ? 'bg-brand-mint text-white border-brand-mint'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-brand-mint hover:bg-brand-mint-light hover:text-brand-mint-dark'
+                    }`}
                 >
                   <span className="block font-semibold">{b.label}</span>
                   <span className={`text-xs ${machineBrand === b.key ? 'text-white/70' : 'text-slate-400'}`}>{b.sub}</span>
                 </button>
               ))}
             </div>
-            <div className="flex flex-col gap-1.5 mb-4">
+            <div className="grid grid-cols-2 gap-1.5 mb-4">
               {MACHINE_CATALOGUE[machineBrand].map(m => (
                 <button
                   key={m.name}
                   onClick={() => { setSelectedMachine(m.name); setMachineCost(String(m.cost)) }}
-                  className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs transition-colors ${
-                    selectedMachine === m.name
-                      ? 'border-brand-mint bg-brand-mint-light text-brand-mint-dark font-medium'
-                      : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-brand-mint hover:bg-brand-mint-light'
-                  }`}
+                  className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs transition-colors ${selectedMachine === m.name
+                    ? 'border-brand-mint bg-brand-mint-light text-brand-mint-dark font-medium'
+                    : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-brand-mint hover:bg-brand-mint-light'
+                    }`}
                 >
                   <span className="font-medium">{m.name}</span>
                   <span className="text-slate-400">${m.cost.toLocaleString()}</span>
@@ -927,6 +1077,9 @@ export default function Calculator() {
             <Field label="Machine Price ($)" hint="Select above or enter manually">
               <NumInput value={machineCost} onChange={v => { setMachineCost(v); setSelectedMachine(null) }} prefix="$" placeholder="5000" />
             </Field>
+            <Field label="Trade-in Value ($)" hint="Enter as negative to reduce total">
+              <NumInput value={tradeIn} onChange={setTradeIn} prefix="$" placeholder="-1000" />
+            </Field>
           </SectionCard>
 
           {/* 3. Free Copies / Print Charges */}
@@ -934,21 +1087,19 @@ export default function Calculator() {
             <div className="flex gap-2 mb-4">
               <button
                 onClick={() => handleCopierToggle('small')}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                  copierType === 'small'
-                    ? 'bg-brand-mint text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${copierType === 'small'
+                  ? 'bg-brand-mint text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
               >
                 Small Copier
               </button>
               <button
                 onClick={() => handleCopierToggle('big')}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                  copierType === 'big'
-                    ? 'bg-brand-mint text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
+                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${copierType === 'big'
+                  ? 'bg-brand-mint text-white'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
               >
                 Big Copier
               </button>
@@ -1015,58 +1166,6 @@ export default function Calculator() {
             )}
           </SectionCard>
 
-          {/* 4 & 5. Rebate & Trade-in */}
-          <SectionCard title="4. Adjustments">
-            {/* Rebate Slider */}
-            <div className="mb-5">
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-slate-600">Rebate per Month</label>
-                <div className="flex items-center gap-2">
-                  {rebatePerMonth > 0 && (
-                    <span className="text-xs text-slate-400">→ Total rebate: <span className="font-semibold text-slate-600">{fmt(rebatePerMonth * 30)}</span></span>
-                  )}
-                  <span className={`text-base font-bold px-2 py-0.5 rounded-lg ${rebatePerMonth > 0 ? 'text-green-700 bg-green-100' : 'text-slate-400 bg-slate-100'}`}>
-                    {rebatePerMonth > 0 ? `$${rebatePerMonth}/mo` : 'None'}
-                  </span>
-                </div>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={500}
-                step={10}
-                value={rebatePerMonth}
-                onChange={e => handleSliderChange(e.target.value)}
-                className="w-full h-2 rounded-full appearance-none cursor-pointer accent-green-600 bg-slate-200"
-              />
-              <div className="flex justify-between text-xs text-slate-400 mt-1">
-                <span>None</span>
-                <span>$30/mo ($900)</span>
-                <span>$250/mo</span>
-                <span>$500/mo ($15,000)</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Rebate ($)" hint="Or type manually">
-                <NumInput value={rebate} onChange={handleRebateManual} prefix="$" placeholder="-900" />
-              </Field>
-              <Field label="Trade-in Value ($)" hint="Enter as negative to reduce total">
-                <NumInput value={tradeIn} onChange={setTradeIn} prefix="$" placeholder="-1000" />
-              </Field>
-            </div>
-            {(parseFloat(rebate) || 0) !== 0 && (
-              <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 mt-1">
-                <p className="text-xs font-semibold text-green-700 mb-0.5">Customer Saving from Rebate</p>
-                <p className="text-base font-bold text-green-700">
-                  {fmt(rebateSavingPerMonth)} <span className="text-sm font-normal">/ month</span>
-                </p>
-                <p className="text-xs text-green-600 mt-0.5">
-                  Rebate {fmt(Math.abs(parseFloat(rebate) || 0))} ÷ 30 months renewal cycle
-                </p>
-              </div>
-            )}
-          </SectionCard>
         </div>
 
         <div>
@@ -1130,11 +1229,10 @@ export default function Calculator() {
                     <button
                       key={m}
                       onClick={() => { setLeasingPeriod(m); setResidualValueAmt('') }}
-                      className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
-                        leasingPeriod === m
-                          ? 'bg-brand-charcoal text-white border-brand-charcoal'
-                          : 'bg-white text-slate-600 border-slate-300 hover:border-brand-mint hover:text-brand-mint-dark'
-                      }`}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${leasingPeriod === m
+                        ? 'bg-brand-charcoal text-white border-brand-charcoal'
+                        : 'bg-white text-slate-600 border-slate-300 hover:border-brand-mint hover:text-brand-mint-dark'
+                        }`}
                     >
                       <span className="block">{m} mo</span>
                       <span className={`text-xs font-normal ${leasingPeriod === m ? 'text-slate-300' : 'text-slate-400'}`}>
@@ -1159,7 +1257,7 @@ export default function Calculator() {
                 <p className="text-xs text-brand-mint-dark mb-1">Normalized Rate</p>
                 <p className="text-lg font-bold text-brand-charcoal">{normalizedRate.toFixed(3)}</p>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  {(leasingRate*100).toFixed(1)}% × {leasingYears} + 1
+                  {(leasingRate * 100).toFixed(1)}% × {leasingYears} + 1
                 </p>
               </div>
             </div>
@@ -1200,7 +1298,7 @@ export default function Calculator() {
                 <div className="bg-slate-50 rounded-lg p-3">
                   <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Part A — Interest on Residual Value</p>
                   <p className="text-xs text-slate-400 font-mono mb-2">
-                    RV × r × 2 × 5 = {fmt(leasingRV)} × {(leasingRate*100).toFixed(1)}% × 2 × 5
+                    RV × r × 2 × 5 = {fmt(leasingRV)} × {(leasingRate * 100).toFixed(1)}% × 2 × 5
                   </p>
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-slate-500">Part A result</span>
@@ -1246,253 +1344,119 @@ export default function Calculator() {
             )}
           </SectionCard>
 
-          {/* Smart Quote Recommendation */}
-          {grandTotal > 0 && leasingMonthly > 0 && (
-            <SectionCard title="💡 Smart Quote Recommendation">
-              {currentMonthlyCost === 0 && (
-                <div className="mb-4 flex flex-col items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-4 text-center">
-                  <p className="text-xs text-amber-700">
-                    Fill in <strong>Client's Current Setup</strong> to unlock personalised saving recommendations.
-                  </p>
-                  <button
-                    onClick={() => setShowClientProfile(true)}
-                    className="px-4 py-2 rounded-xl bg-brand-charcoal text-white text-sm font-semibold hover:bg-brand-charcoal-dark transition-colors"
-                  >
-                    👤 Open Client's Current Setup
-                  </button>
-                </div>
-              )}
-
-              {/* Three reference lines */}
-              <div className="space-y-2 mb-5">
-                <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                  <div>
-                    <p className="text-xs font-semibold text-slate-500">🔴 Break-even (Floor)</p>
-                    <p className="text-xs text-slate-400 mt-0.5">Min to cover leasing cost — below this = loss</p>
-                  </div>
-                  <span className="text-base font-bold text-slate-700">{fmt(breakEvenMonthly)}</span>
-                </div>
-
-                {repaymentCeiling > 0 && (
-                  <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                    <div>
-                      <p className="text-xs font-semibold text-slate-500">🟡 Repayment Ceiling</p>
-                      <p className="text-xs text-slate-400 mt-0.5">(Outstanding + Machine × 3) ÷ 60</p>
-                    </div>
-                    <span className="text-base font-bold text-slate-700">{fmt(repaymentCeiling)}</span>
-                  </div>
-                )}
-
-                {savingTarget25 !== null && (
-                  <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-brand-mint-light border border-brand-mint">
-                    <div>
-                      <p className="text-xs font-semibold text-brand-mint-dark">🎯 25% Saving Target</p>
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Client cost × 75% + rebate saving ({fmt(rebateSavingPerMonth)}/mo)
-                      </p>
-                    </div>
-                    <span className="text-base font-bold text-brand-mint-dark">{fmt(savingTarget25)}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Recommended quote */}
-              {quoteIsProfitable ? (
-                /* ✅ Profitable path — standard recommendation */
-                <div className="rounded-2xl overflow-hidden border-2 border-brand-mint">
-                  <div className="px-4 py-3 bg-brand-mint">
-                    <p className="text-white text-sm font-bold">✅ Recommended Quote</p>
-                    <p className="text-white/80 text-xs mt-0.5">Maximises your profit while saving client ≥25%</p>
-                  </div>
-                  <div className="p-4 bg-white">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <p className="text-xs text-slate-400">Monthly Repayment to Quote</p>
-                        <p className="text-3xl font-bold text-brand-charcoal mt-0.5">{fmt(recommendedMonthly)}</p>
-                      </div>
-                      {recommendedSavingPct !== null && (
-                        <div className={`text-center px-4 py-2 rounded-xl ${recommendedSavingPct >= 25 ? 'bg-green-100' : 'bg-amber-100'}`}>
-                          <p className={`text-2xl font-bold ${recommendedSavingPct >= 25 ? 'text-green-700' : 'text-amber-700'}`}>
-                            {recommendedSavingPct.toFixed(1)}%
-                          </p>
-                          <p className={`text-xs ${recommendedSavingPct >= 25 ? 'text-green-600' : 'text-amber-600'}`}>client saves</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-2 text-sm">
-                      {currentMonthlyCost > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Client current cost</span>
-                          <span className="font-medium text-slate-700">{fmt(currentMonthlyCost)}/mo</span>
-                        </div>
-                      )}
-                      {currentMonthlyCost > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Client new net cost</span>
-                          <span className="font-medium text-green-600">{fmt(recommendedNetCost)}/mo</span>
-                        </div>
-                      )}
-                      {currentMonthlyCost > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Client saves</span>
-                          <span className="font-medium text-green-600">{fmt(currentMonthlyCost - recommendedNetCost)}/mo</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between border-t border-slate-100 pt-2 mt-1">
-                        <span className="text-slate-400">Your profit ({leasingPeriod}mo × {fmt(recommendedMonthly)} − Grand Total)</span>
-                        <span className="font-bold text-green-600">{fmt(recommendedProfit)}</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setMonthlyRepayment(recommendedMonthly.toFixed(2))}
-                      className="mt-4 w-full py-2.5 rounded-xl bg-brand-charcoal text-white text-sm font-semibold hover:bg-brand-charcoal-dark transition-colors"
-                    >
-                      → Apply to Profit Calculator
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                /* ⚠️ Unprofitable path — push to ceiling + give rebate for 25% saving */
-                <div className="rounded-2xl overflow-hidden border-2 border-red-300">
-                  <div className="px-4 py-3 bg-red-500">
-                    <p className="text-white text-sm font-bold">⚠️ Deal is Tight — Best Possible Quote</p>
-                    <p className="text-white/80 text-xs mt-0.5">
-                      Charge the maximum ceiling &amp; offset with rebate to still give client 25% saving
-                    </p>
-                  </div>
-                  <div className="p-4 bg-white space-y-4">
-
-                    {/* Two-column: Monthly + Rebate */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-slate-50 rounded-xl px-3 py-3 text-center">
-                        <p className="text-xs text-slate-400 mb-1">Charge (ceiling)</p>
-                        <p className="text-2xl font-bold text-brand-charcoal">{fmt(ceilMonthly)}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">/month</p>
-                      </div>
-                      <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-3 text-center">
-                        <p className="text-xs text-amber-600 mb-1">Give Rebate</p>
-                        <p className="text-2xl font-bold text-amber-700">
-                          {ceilRebatePerMonth > 0 ? fmt(ceilRebatePerMonth) : '—'}
-                        </p>
-                        <p className="text-xs text-amber-500 mt-0.5">
-                          {ceilRebatePerMonth > 0 ? `/mo (${fmt(ceilRebateTotal)} total)` : 'none needed'}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Client saving result */}
-                    {ceilSavingPct !== null && (
-                      <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
-                        <div>
-                          <p className="text-xs font-semibold text-green-700">Client Net Cost After Rebate</p>
-                          <p className="text-xs text-green-500 mt-0.5">
-                            {fmt(ceilMonthly)} − {fmt(ceilRebatePerMonth)}/mo rebate
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-lg font-bold text-green-700">{fmt(ceilClientNetCost)}/mo</p>
-                          <p className="text-xs text-green-500 font-semibold">saves {ceilSavingPct.toFixed(1)}%</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Cost breakdown */}
-                    <div className="space-y-2 text-sm border-t border-slate-100 pt-3">
-                      {currentMonthlyCost > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Client current cost</span>
-                          <span className="font-medium text-slate-700">{fmt(currentMonthlyCost)}/mo</span>
-                        </div>
-                      )}
-                      {ceilRebatePerMonth > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Rebate cost to you ({fmt(ceilRebateTotal)} total)</span>
-                          <span className="font-medium text-red-500">−{fmt(ceilRebateTotal)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between pt-1 border-t border-slate-100">
-                        <span className="text-slate-500 font-medium">Your profit</span>
-                        <span className={`font-bold ${ceilProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                          {fmt(ceilProfit)}
-                          {ceilProfit < 0 && <span className="text-xs font-normal ml-1">(loss)</span>}
-                        </span>
-                      </div>
-                    </div>
-
-                    {ceilProfit < 0 && (
-                      <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-600">
-                        <p className="font-semibold mb-0.5">⚠️ This deal results in a loss</p>
-                        <p>Even at the maximum ceiling with optimal rebate, costs exceed revenue. Consider renegotiating the machine price or outstanding amount.</p>
-                      </div>
-                    )}
-
-                    <button
-                      onClick={() => {
-                        setMonthlyRepayment(ceilMonthly.toFixed(2))
-                        if (ceilRebatePerMonth > 0) {
-                          setRebate(String(-(ceilRebateTotal)))
-                          setRebatePerMonth(Math.min(500, Math.round(ceilRebatePerMonth / 10) * 10))
-                        }
-                      }}
-                      className="w-full py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-semibold transition-colors"
-                    >
-                      → Apply Ceiling + Rebate to Calculator
-                    </button>
-                  </div>
-                </div>
-              )}
-            </SectionCard>
-          )}
-
-          {/* Profit */}
+          {/* 8. Profit Calculator — merged with Smart Quote */}
           <SectionCard title="8. Profit Calculator">
-            {currentMonthlyCost > 0 && (
-              <div className="mb-4 bg-slate-100 rounded-xl px-4 py-3 flex items-center justify-between">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Client's Current Monthly Cost</p>
-                <span className="text-xl font-bold text-slate-700">{fmt(currentMonthlyCost)}</span>
-              </div>
-            )}
 
-            <Field label="Monthly Repayment ($)" hint="Set your desired monthly repayment amount">
-              <NumInput value={monthlyRepayment} onChange={setMonthlyRepayment} prefix="$" placeholder="300" />
-            </Field>
+            {/* ── Smart Quote Reference ── */}
+            {grandTotal > 0 && leasingMonthly > 0 && (() => {
+              const saving25 = currentMonthlyCost > 0 ? currentMonthlyCost * 0.75 : null
+              const needsRebate = saving25 !== null && saving25 < breakEvenMonthly
 
-            {(parseFloat(monthlyRepayment) || 0) > 0 && currentMonthlyCost > 0 && (() => {
-              const compareVal = rebateSavingPerMonth > 0 ? netCostPerMonth : (parseFloat(monthlyRepayment) || 0)
-              const diff = currentMonthlyCost - compareVal
-              const pct = (diff / currentMonthlyCost) * 100
-              const saving = diff >= 0
+              const points = [
+                { key: 'breakeven', label: 'Break-even', value: breakEvenMonthly, color: 'text-red-500', dot: 'bg-red-500' },
+                ...(saving25 !== null ? [{ key: 'saving25', label: '25% Saving', value: saving25, color: needsRebate ? 'text-red-400' : 'text-green-600', dot: needsRebate ? 'bg-red-300' : 'bg-green-400' }] : []),
+                ...(currentMonthlyCost > 0 ? [{ key: 'client', label: 'Client Cost', value: currentMonthlyCost, color: 'text-brand-mint-dark', dot: 'bg-brand-mint' }] : []),
+                ...(repaymentCeiling > 0 ? [{ key: 'ceiling', label: 'Ceiling', value: repaymentCeiling, color: 'text-amber-600', dot: 'bg-amber-400' }] : []),
+              ].sort((a, b) => a.value - b.value)
+              const minVal = points[0]?.value || 0
+              const maxVal = points[points.length - 1]?.value || 1
+              const range = maxVal - minVal || 1
+              const pct = (v) => Math.min(100, Math.max(0, ((v - minVal) / range) * 100))
+
               return (
-                <div className={`flex items-center justify-between rounded-xl px-4 py-3 -mt-1 mb-4 border ${saving ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                  <div>
-                    <p className={`text-xs font-semibold ${saving ? 'text-green-700' : 'text-red-700'}`}>
-                      {rebateSavingPerMonth > 0 ? 'Net Cost Per Month' : 'New Monthly Cost'}
-                      {currentMonthlyCost > 0 && (
-                        <span className={`ml-2 px-1.5 py-0.5 rounded text-xs font-bold ${saving ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
-                          {saving ? '▼' : '▲'} {Math.abs(pct).toFixed(1)}% · {saving ? '-' : '+'}{fmt(Math.abs(diff))}/mo
-                        </span>
-                      )}
-                    </p>
-                    {rebateSavingPerMonth > 0 && (
-                      <p className={`text-xs mt-0.5 ${saving ? 'text-green-500' : 'text-red-500'}`}>
-                        after {fmt(rebateSavingPerMonth)} rebate saving
-                      </p>
-                    )}
+                <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-4">💡 Price Reference</p>
+
+                  {/* Text rows */}
+                  <div className="space-y-2">
+                    {points.map(p => (
+                      <div key={p.key} className="flex items-center justify-between">
+                        <span className={`text-xs font-semibold ${p.color}`}>{p.label}</span>
+                        <span className={`text-sm font-bold ${p.color}`}>{fmt(p.value)}<span className="text-xs font-normal text-slate-400">/mo</span></span>
+                      </div>
+                    ))}
                   </div>
-                  <span className={`text-xl font-bold ${saving ? 'text-green-700' : 'text-red-700'}`}>{fmt(compareVal)}</span>
                 </div>
               )
             })()}
 
-            {rebateSavingPerMonth > 0 && (parseFloat(monthlyRepayment) || 0) > 0 && currentMonthlyCost === 0 && (
-              <div className="flex items-center justify-between bg-brand-mint-light border border-brand-mint rounded-xl px-4 py-3 -mt-1 mb-4">
-                <div>
-                  <p className="text-xs font-semibold text-brand-mint-dark">Net Cost Per Month</p>
-                  <p className="text-xs text-brand-mint mt-0.5">
-                    Monthly Repayment − Rebate Saving ({fmt(rebateSavingPerMonth)}/mo)
-                  </p>
+            <Field label="Monthly Repayment ($)" hint="Set manually or apply from Smart Quote above">
+              <NumInput value={monthlyRepayment} onChange={setMonthlyRepayment} prefix="$" placeholder="300" />
+            </Field>
+
+            {/* ── Rebate Slider ── */}
+            {(parseFloat(monthlyRepayment) || 0) > 0 && (
+              <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Rebate</p>
+                  <span className="text-sm font-bold text-amber-700">
+                    {rebatePerMonth > 0 ? `${fmt(rebatePerMonth)}/mo` : '—'}
+                  </span>
                 </div>
-                <span className="text-xl font-bold text-brand-mint-dark">{fmt(netCostPerMonth)}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={500}
+                  step={10}
+                  value={rebatePerMonth}
+                  onChange={e => handleSliderChange(e.target.value)}
+                  className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-[#f59e0b] bg-slate-200"
+                />
+                <div className="flex justify-between text-xs text-slate-400 mt-1 mb-3">
+                  <span>$0/mo</span>
+                  <span>$500/mo</span>
+                </div>
+
+                {rebatePerMonth > 0 && (
+                  <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+                    <span className="text-xs font-semibold text-amber-700">Total Rebate (30 months)</span>
+                    <span className="text-sm font-bold text-amber-800">{fmt(rebatePerMonth * 30)}</span>
+                  </div>
+                )}
+
+                {currentMonthlyCost > 0 && (() => {
+                  const net = netCostPerMonth
+                  const diff = currentMonthlyCost - net
+                  const pct = (diff / currentMonthlyCost) * 100
+                  const saving = diff >= 0
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between bg-slate-100 rounded-xl px-4 py-3">
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Client's Current Monthly Cost</p>
+                        <span className="text-xl font-bold text-slate-700">{fmt(currentMonthlyCost)}</span>
+                      </div>
+                      <div className={`flex items-center justify-between rounded-xl px-4 py-3 border ${saving ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                        <div>
+                          <p className={`text-xs font-semibold ${saving ? 'text-green-700' : 'text-red-700'}`}>
+                            Net Cost / Month
+                            <span className={`ml-2 px-1.5 py-0.5 rounded text-xs font-bold ${saving ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800'}`}>
+                              {saving ? '▼' : '▲'} {Math.abs(pct).toFixed(1)}% · {saving ? '−' : '+'}{fmt(Math.abs(diff))}/mo
+                            </span>
+                          </p>
+                        </div>
+                        <span className={`text-xl font-bold ${saving ? 'text-green-700' : 'text-red-700'}`}>{fmt(net)}</span>
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {currentMonthlyCost === 0 && rebatePerMonth > 0 && (
+                  <div className="flex items-center justify-between bg-brand-mint-light border border-brand-mint rounded-xl px-4 py-3">
+                    <div>
+                      <p className="text-xs font-semibold text-brand-mint-dark">Net Cost / Month</p>
+                      <p className="text-xs text-brand-mint mt-0.5">{fmt(parseFloat(monthlyRepayment))} − {fmt(rebatePerMonth)} rebate</p>
+                    </div>
+                    <span className="text-xl font-bold text-brand-mint-dark">{fmt(netCostPerMonth)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Profit */}
+            {(parseFloat(monthlyRepayment) || 0) > 0 && (
+              <div className={`flex items-center justify-between rounded-xl px-4 py-3 mb-4 border ${profit >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                <span className="font-bold text-slate-700">Profit</span>
+                <span className={`text-lg font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(profit)}</span>
               </div>
             )}
 
@@ -1504,11 +1468,10 @@ export default function Calculator() {
                   <button
                     key={pct}
                     onClick={() => setResidualPct(pct)}
-                    className={`px-4 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
-                      residualPct === pct
-                        ? 'bg-brand-charcoal text-white border-brand-charcoal'
-                        : 'bg-white text-slate-600 border-slate-300 hover:border-brand-mint hover:text-brand-mint-dark'
-                    }`}
+                    className={`px-4 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${residualPct === pct
+                      ? 'bg-brand-charcoal text-white border-brand-charcoal'
+                      : 'bg-white text-slate-600 border-slate-300 hover:border-brand-mint hover:text-brand-mint-dark'
+                      }`}
                   >
                     {pct}%
                   </button>
@@ -1520,16 +1483,6 @@ export default function Calculator() {
               <ResultRow label="Grand Total Financed (principal)" value={fmt(grandTotalFinanced)} />
               <ResultRow label={`Residual Value — ${residualPct}% of GTF`} value={fmt(residualValue)} />
               <ResultRow label="Grand Total Price (your cost)" value={fmt(grandTotal)} />
-              <div
-                className={`flex justify-between items-center py-3 px-4 rounded-xl mt-2 ${
-                  profit >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
-                }`}
-              >
-                <span className="font-bold text-slate-700">Profit</span>
-                <span className={`text-lg font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {fmt(profit)}
-                </span>
-              </div>
             </div>
 
             {(outstanding > 0 || (parseFloat(machineCost) || 0) > 0) && (
@@ -1564,7 +1517,7 @@ export default function Calculator() {
                             {m.name || (m.ownership === 'purchase' ? 'Purchased' : 'Leased')}
                             <span className="float-right font-medium text-slate-700">
                               {m.ownership === 'purchase'
-                                ? fmt((parseFloat(m.purchaseCost)||0)/((parseFloat(m.years)||5)*12))
+                                ? fmt((parseFloat(m.purchaseCost) || 0) / ((parseFloat(m.years) || 5) * 12))
                                 : fmt(m.monthlyLease)}/mo
                             </span>
                           </div>
