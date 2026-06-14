@@ -204,19 +204,25 @@ export default function Calculator() {
   // --- Adjustments ---
   const [rebate, setRebate] = useState('')
   const [rebatePerMonth, setRebatePerMonth] = useState(0)
+  const [nettCost, setNettCost] = useState('')
   const [tradeIn, setTradeIn] = useState('')
 
-  const handleSliderChange = (val) => {
-    const n = Number(val)
-    setRebatePerMonth(n)
-    setRebate(n > 0 ? String(-(n * 30)) : '')
+  const handleNettCostChange = (val) => {
+    setNettCost(val)
+    const repayment = parseFloat(monthlyRepayment) || 0
+    const net = parseFloat(val) || 0
+    const perMonth = Math.max(0, repayment - net)
+    setRebatePerMonth(perMonth)
+    setRebate(perMonth > 0 ? String(-(perMonth * 30)) : '')
   }
 
-  const handleRebateManual = (val) => {
-    setRebate(val)
-    const abs = Math.abs(parseFloat(val) || 0)
-    const nearest = Math.min(500, Math.max(0, Math.round(abs / 30 / 10) * 10))
-    setRebatePerMonth(nearest)
+  const handleRebateTotalChange = (val) => {
+    const total = parseFloat(val) || 0
+    const perMonth = total / 30
+    setRebate(total > 0 ? String(-total) : '')
+    setRebatePerMonth(perMonth)
+    const repayment = parseFloat(monthlyRepayment) || 0
+    setNettCost(perMonth > 0 ? String(repayment - perMonth) : '')
   }
 
   // --- Leasing Calculator ---
@@ -1384,7 +1390,13 @@ export default function Calculator() {
               <NumInput value={monthlyRepayment} onChange={setMonthlyRepayment} prefix="$" placeholder="300" />
             </Field>
 
-            {/* ── Rebate Slider ── */}
+            {(parseFloat(monthlyRepayment) || 0) > 0 && (
+              <Field label="Nett Cost ($)" hint="Rebate auto-calculated from Monthly Repayment − Nett Cost × 30">
+                <NumInput value={nettCost} onChange={handleNettCostChange} prefix="$" placeholder="250" />
+              </Field>
+            )}
+
+            {/* ── Rebate ── */}
             {(parseFloat(monthlyRepayment) || 0) > 0 && (
               <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-center justify-between mb-3">
@@ -1393,26 +1405,16 @@ export default function Calculator() {
                     {rebatePerMonth > 0 ? `${fmt(rebatePerMonth)}/mo` : '—'}
                   </span>
                 </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={500}
-                  step={10}
-                  value={rebatePerMonth}
-                  onChange={e => handleSliderChange(e.target.value)}
-                  className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-[#f59e0b] bg-slate-200"
-                />
-                <div className="flex justify-between text-xs text-slate-400 mt-1 mb-3">
-                  <span>$0/mo</span>
-                  <span>$500/mo</span>
-                </div>
 
-                {rebatePerMonth > 0 && (
-                  <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
-                    <span className="text-xs font-semibold text-amber-700">Total Rebate (30 months)</span>
-                    <span className="text-sm font-bold text-amber-800">{fmt(rebatePerMonth * 30)}</span>
-                  </div>
-                )}
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Total Rebate (30 months) ($)</label>
+                  <NumInput
+                    value={Math.abs(parseFloat(rebate) || 0) > 0 ? String(Math.abs(parseFloat(rebate) || 0)) : ''}
+                    onChange={handleRebateTotalChange}
+                    prefix="$"
+                    placeholder="0"
+                  />
+                </div>
 
                 {currentMonthlyCost > 0 && (() => {
                   const net = netCostPerMonth

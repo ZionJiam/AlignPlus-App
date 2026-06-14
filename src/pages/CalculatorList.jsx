@@ -6,6 +6,41 @@ function fmt(n) {
   return '$' + Number(n || 0).toLocaleString('en-SG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+const INTEREST_RATES = { 36: 0.04, 60: 0.04, 72: 0.044 }
+
+function computeProfit(d) {
+  const leasingPeriod = d.leasingPeriod || 60
+  const monthly = parseFloat(d.monthlyRepayment) || 0
+  if (!monthly) return null
+
+  const machineCost = parseFloat(d.machineCost) || 0
+
+  const outstanding = (() => {
+    if (d.clientMachines?.length) {
+      const t = d.clientMachines.reduce((s, m) =>
+        s + (parseFloat(m.finalPayment) || 0) + (parseFloat(m.monthlyLease) || 0) * (parseFloat(m.monthsLeft) || 0), 0)
+      if (t > 0) return t
+    }
+    return (parseFloat(d.outstandingFinal) || 0) + (parseFloat(d.monthlyLease) || 0) * (parseFloat(d.monthsLeft) || 0)
+  })()
+
+  const printCharges = (parseFloat(d.bwCost) || 0) * (parseFloat(d.bwUnits) || 0) +
+    (parseFloat(d.colorCost) || 0) * (parseFloat(d.colorUnits) || 0)
+  const nonAchieved = printCharges + Math.abs(parseFloat(d.rebate) || 0) + Math.abs(parseFloat(d.tradeIn) || 0)
+  const grandTotal = machineCost + outstanding + nonAchieved
+  if (!grandTotal) return null
+
+  const rate = INTEREST_RATES[leasingPeriod] ?? 0.04
+  const years = leasingPeriod / 12
+  const K = years * rate * 100
+  const rv = (d.residualPct || 25) / 100
+  const tp = monthly * leasingPeriod
+  const num = tp * (100 / (100 + K))
+  const den = (1 + rv) - (200 * rv / (100 + K))
+  const gtf = den > 0 ? num / den : 0
+  return gtf - grandTotal
+}
+
 export default function CalculatorList() {
   const navigate = useNavigate()
   const [records, setRecords] = useState([])
@@ -71,8 +106,7 @@ export default function CalculatorList() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {records.map(r => {
             const d = r.data || {}
-            const monthly = parseFloat(d.monthlyRepayment) || 0
-            const machine = d.selectedMachine || d.machineBrand || '—'
+            const profit = computeProfit(d)
             const updatedAt = new Date(r.updated_at)
 
             return (
@@ -82,7 +116,7 @@ export default function CalculatorList() {
                 className="group bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-brand-mint transition-all cursor-pointer overflow-hidden"
               >
                 {/* Accent bar */}
-                <div className="h-1.5 w-full bg-brand-mint" />
+                <div className={`h-1.5 w-full ${profit != null ? (profit >= 0 ? 'bg-brand-mint' : 'bg-red-400') : 'bg-brand-mint'}`} />
 
                 <div className="p-5">
                   {/* Client name + delete */}
@@ -104,27 +138,18 @@ export default function CalculatorList() {
                     </button>
                   </div>
 
-                  {/* Key figures */}
-                  <div className="space-y-1.5">
-                    {monthly > 0 && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-slate-400">Monthly repayment</span>
-                        <span className="text-sm font-bold text-brand-mint-dark">{fmt(monthly)}</span>
-                      </div>
-                    )}
-                    {machine && machine !== '—' && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-slate-400">Machine</span>
-                        <span className="text-xs font-medium text-slate-600">{machine}</span>
-                      </div>
-                    )}
-                    {d.leasingPeriod && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-slate-400">Lease period</span>
-                        <span className="text-xs font-medium text-slate-600">{d.leasingPeriod} months</span>
-                      </div>
-                    )}
-                  </div>
+                  {/* Profit */}
+                  {profit != null ? (
+                    <div className={`flex items-center justify-between rounded-xl px-3 py-2 ${profit >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+                      <span className="text-xs text-slate-400">Profit</span>
+                      <span className={`text-sm font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>{fmt(profit)}</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between rounded-xl px-3 py-2 bg-slate-50">
+                      <span className="text-xs text-slate-400">Profit</span>
+                      <span className="text-xs text-slate-300">—</span>
+                    </div>
+                  )}
 
                   <div className="mt-4 text-brand-mint-dark text-xs font-semibold group-hover:underline">
                     Open →
