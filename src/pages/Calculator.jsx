@@ -117,6 +117,11 @@ function buildSnapshot(state) {
     clientBwCost: state.clientBwCost,
     clientColorUnits: state.clientColorUnits,
     clientColorCost: state.clientColorCost,
+    clientPrintMode: state.clientPrintMode,
+    clientTotalPrintCost: state.clientTotalPrintCost,
+    clientBwSplitPct: state.clientBwSplitPct,
+    clientSimpleBwRate: state.clientSimpleBwRate,
+    clientSimpleColorRate: state.clientSimpleColorRate,
     monthsLeftEnd: state.monthsLeftEnd,
   }
 }
@@ -165,6 +170,11 @@ function normalizeSnapshot(d) {
     clientBwCost: d.clientBwCost ?? '',
     clientColorUnits: d.clientColorUnits ?? '',
     clientColorCost: d.clientColorCost ?? '',
+    clientPrintMode: d.clientPrintMode ?? 'detailed',
+    clientTotalPrintCost: d.clientTotalPrintCost ?? '',
+    clientBwSplitPct: d.clientBwSplitPct ?? 50,
+    clientSimpleBwRate: d.clientSimpleBwRate ?? '0.01',
+    clientSimpleColorRate: d.clientSimpleColorRate ?? '0.14',
     monthsLeftEnd: d.monthsLeftEnd ?? '',
   })
 }
@@ -242,6 +252,11 @@ export default function Calculator() {
   const [clientBwCost, setClientBwCost] = useState('')
   const [clientColorUnits, setClientColorUnits] = useState('')
   const [clientColorCost, setClientColorCost] = useState('')
+  const [clientPrintMode, setClientPrintMode] = useState('detailed') // 'detailed' | 'simple'
+  const [clientTotalPrintCost, setClientTotalPrintCost] = useState('')
+  const [clientBwSplitPct, setClientBwSplitPct] = useState(50)
+  const [clientSimpleBwRate, setClientSimpleBwRate] = useState('0.01')
+  const [clientSimpleColorRate, setClientSimpleColorRate] = useState('0.14')
 
   const addClientMachine = () => setClientMachines(prev => [
     ...prev,
@@ -289,6 +304,11 @@ export default function Calculator() {
     setClientBwCost(d.clientBwCost ?? '')
     setClientColorUnits(d.clientColorUnits ?? '')
     setClientColorCost(d.clientColorCost ?? '')
+    setClientPrintMode(d.clientPrintMode ?? 'detailed')
+    setClientTotalPrintCost(d.clientTotalPrintCost ?? '')
+    setClientBwSplitPct(d.clientBwSplitPct ?? 50)
+    setClientSimpleBwRate(d.clientSimpleBwRate ?? '0.01')
+    setClientSimpleColorRate(d.clientSimpleColorRate ?? '0.14')
     setMonthsLeftEnd(d.monthsLeftEnd ?? '')
     setCleanSnapshot(JSON.stringify(normalizeSnapshot(d)))
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
@@ -320,6 +340,7 @@ export default function Calculator() {
       leasingPeriod, residualValueAmt,
       monthlyRepayment, residualPct,
       clientMachines, clientBwUnits, clientBwCost, clientColorUnits, clientColorCost,
+      clientPrintMode, clientTotalPrintCost, clientBwSplitPct, clientSimpleBwRate, clientSimpleColorRate,
     })
     if (id !== 'new') {
       const { error } = await supabase
@@ -359,6 +380,7 @@ export default function Calculator() {
       leasingPeriod, residualValueAmt,
       monthlyRepayment, residualPct,
       clientMachines, clientBwUnits, clientBwCost, clientColorUnits, clientColorCost,
+      clientPrintMode, clientTotalPrintCost, clientBwSplitPct, clientSimpleBwRate, clientSimpleColorRate,
       monthsLeftEnd,
     }))
     return current !== cleanSnapshot
@@ -369,6 +391,7 @@ export default function Calculator() {
     leasingPeriod, residualValueAmt,
     monthlyRepayment, residualPct,
     clientMachines, clientBwUnits, clientBwCost, clientColorUnits, clientColorCost,
+    clientPrintMode, clientTotalPrintCost, clientBwSplitPct, clientSimpleBwRate, clientSimpleColorRate,
     monthsLeftEnd])
 
   useEffect(() => {
@@ -452,14 +475,35 @@ export default function Calculator() {
     return (parseFloat(monthlyRepayment) || 0) - rebateSavingPerMonth
   }, [monthlyRepayment, rebateSavingPerMonth])
 
-  const clientBwMonthly = (parseFloat(clientBwUnits) || 0) * 30
-  const clientColorMonthly = (parseFloat(clientColorUnits) || 0) * 30
-  const hasClientProfile = clientMachines.some(m => m.name || m.purchaseCost || m.monthlyLease) || clientBwUnits || clientColorUnits
+  // Simple mode: back-calculate monthly copy volume from cost share ÷ per-copy rate
+  const simpleBwUnitsPerMonth = useMemo(() => {
+    if (clientPrintMode !== 'simple') return 0
+    const total = parseFloat(clientTotalPrintCost) || 0
+    const rate = parseFloat(clientSimpleBwRate) || 0.01
+    return rate > 0 ? Math.round((total * clientBwSplitPct / 100) / rate) : 0
+  }, [clientPrintMode, clientTotalPrintCost, clientBwSplitPct, clientSimpleBwRate])
+
+  const simpleColorUnitsPerMonth = useMemo(() => {
+    if (clientPrintMode !== 'simple') return 0
+    const total = parseFloat(clientTotalPrintCost) || 0
+    const rate = parseFloat(clientSimpleColorRate) || 0.14
+    return rate > 0 ? Math.round((total * (100 - clientBwSplitPct) / 100) / rate) : 0
+  }, [clientPrintMode, clientTotalPrintCost, clientBwSplitPct, clientSimpleColorRate])
+
+  const clientBwMonthly = clientPrintMode === 'simple'
+    ? simpleBwUnitsPerMonth * 30
+    : (parseFloat(clientBwUnits) || 0) * 30
+  const clientColorMonthly = clientPrintMode === 'simple'
+    ? simpleColorUnitsPerMonth * 30
+    : (parseFloat(clientColorUnits) || 0) * 30
+
+  const hasClientProfile = clientMachines.some(m => m.name || m.purchaseCost || m.monthlyLease) || clientBwUnits || clientColorUnits || clientTotalPrintCost
 
   const clientMonthlyPrintCost = useMemo(() => {
+    if (clientPrintMode === 'simple') return parseFloat(clientTotalPrintCost) || 0
     return (parseFloat(clientBwCost) || 0) * (parseFloat(clientBwUnits) || 0) +
       (parseFloat(clientColorCost) || 0) * (parseFloat(clientColorUnits) || 0)
-  }, [clientBwCost, clientBwUnits, clientColorCost, clientColorUnits])
+  }, [clientPrintMode, clientTotalPrintCost, clientBwCost, clientBwUnits, clientColorCost, clientColorUnits])
 
   const currentMonthlyCost = useMemo(() => {
     const machineCosts = clientMachines.reduce((sum, m) => {
@@ -769,58 +813,131 @@ export default function Calculator() {
                 })()}
               </div>
 
-              {/* Current Print Volume */}
+              {/* Current Print Cost */}
               <div>
-                <p className="text-sm font-semibold text-slate-600 mb-3">Current Print Volume</p>
-                <div className="space-y-4">
-                  <div className="bg-slate-50 rounded-xl p-4">
-                    <p className="text-xs font-semibold text-slate-400 uppercase mb-3">Black &amp; White</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Monthly Units</label>
-                        <NumInput value={clientBwUnits} onChange={setClientBwUnits} placeholder="500" />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Cost per Copy ($)</label>
-                        <NumInput value={clientBwCost} onChange={setClientBwCost} prefix="$" placeholder="0.015" />
-                      </div>
-                    </div>
-                    {clientBwUnits && (
-                      <div className="mt-2 text-xs text-brand-mint-dark font-medium">
-                        Monthly spend: {fmt((parseFloat(clientBwCost) || 0) * (parseFloat(clientBwUnits) || 0))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="bg-slate-50 rounded-xl p-4">
-                    <p className="text-xs font-semibold text-slate-400 uppercase mb-3">Colour</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Monthly Units</label>
-                        <NumInput value={clientColorUnits} onChange={setClientColorUnits} placeholder="200" />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Cost per Copy ($)</label>
-                        <NumInput value={clientColorCost} onChange={setClientColorCost} prefix="$" placeholder="0.24" />
-                      </div>
-                    </div>
-                    {clientColorUnits && (
-                      <div className="mt-2 text-xs text-brand-mint-dark font-medium">
-                        Monthly spend: {fmt((parseFloat(clientColorCost) || 0) * (parseFloat(clientColorUnits) || 0))}
-                      </div>
-                    )}
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-slate-600">Current Print Cost</p>
+                  <div className="flex gap-1">
+                    {[{ key: 'simple', label: 'Simple' }, { key: 'detailed', label: 'Detailed' }].map(m => (
+                      <button
+                        key={m.key}
+                        onClick={() => setClientPrintMode(m.key)}
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors ${clientPrintMode === m.key
+                          ? 'bg-brand-charcoal text-white border-brand-charcoal'
+                          : 'bg-white text-slate-500 border-slate-200 hover:border-brand-mint hover:text-brand-mint-dark'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
-                {(clientBwUnits || clientColorUnits) && (
-                  <div className="mt-3 bg-brand-mint-light border border-brand-mint rounded-xl px-4 py-3">
-                    <p className="text-xs font-semibold text-brand-mint-dark mb-2">Total Monthly Print Cost</p>
-                    <p className="text-lg font-bold text-brand-charcoal">
-                      {fmt(
-                        (parseFloat(clientBwCost) || 0) * (parseFloat(clientBwUnits) || 0) +
-                        (parseFloat(clientColorCost) || 0) * (parseFloat(clientColorUnits) || 0)
+                {clientPrintMode === 'simple' ? (
+                  <div className="space-y-4">
+                    <div className="bg-slate-50 rounded-xl p-4">
+                      <div className="mb-4">
+                        <label className="block text-xs text-slate-500 mb-1">Total Monthly Print Cost ($)</label>
+                        <NumInput value={clientTotalPrintCost} onChange={setClientTotalPrintCost} prefix="$" placeholder="200" />
+                      </div>
+
+                      {/* Per-copy rates */}
+                      <div className="grid grid-cols-2 gap-2 mb-4">
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">B/W rate ($/copy)</label>
+                          <NumInput value={clientSimpleBwRate} onChange={setClientSimpleBwRate} prefix="$" placeholder="0.01" />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">Color rate ($/copy)</label>
+                          <NumInput value={clientSimpleColorRate} onChange={setClientSimpleColorRate} prefix="$" placeholder="0.14" />
+                        </div>
+                      </div>
+
+                      {(parseFloat(clientTotalPrintCost) || 0) > 0 && (
+                        <>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-semibold text-slate-500">B/W — {clientBwSplitPct}%</span>
+                            <span className="text-xs font-semibold text-slate-500">Color — {100 - clientBwSplitPct}%</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            step={10}
+                            value={clientBwSplitPct}
+                            onChange={e => setClientBwSplitPct(Number(e.target.value))}
+                            className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-[#595f6e] bg-slate-200"
+                          />
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            <div className="bg-slate-200 rounded-lg px-3 py-2">
+                              <p className="text-xs text-slate-500 mb-0.5">B/W — {fmt((parseFloat(clientTotalPrintCost) || 0) * clientBwSplitPct / 100)}/mo</p>
+                              <p className="text-sm font-bold text-slate-700">{simpleBwUnitsPerMonth.toLocaleString()} copies/mo</p>
+                            </div>
+                            <div className="bg-brand-mint-light rounded-lg px-3 py-2">
+                              <p className="text-xs text-brand-mint-dark mb-0.5">Color — {fmt((parseFloat(clientTotalPrintCost) || 0) * (100 - clientBwSplitPct) / 100)}/mo</p>
+                              <p className="text-sm font-bold text-brand-mint-dark">{simpleColorUnitsPerMonth.toLocaleString()} copies/mo</p>
+                            </div>
+                          </div>
+                        </>
                       )}
-                    </p>
+                    </div>
+
+                    {(parseFloat(clientTotalPrintCost) || 0) > 0 && (
+                      <div className="bg-brand-mint-light border border-brand-mint rounded-xl px-4 py-3">
+                        <p className="text-xs font-semibold text-brand-mint-dark mb-1">Total Monthly Print Cost</p>
+                        <p className="text-lg font-bold text-brand-charcoal">{fmt(clientTotalPrintCost)}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="bg-slate-50 rounded-xl p-4">
+                      <p className="text-xs font-semibold text-slate-400 uppercase mb-3">Black &amp; White</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">Monthly Units</label>
+                          <NumInput value={clientBwUnits} onChange={setClientBwUnits} placeholder="500" />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">Cost per Copy ($)</label>
+                          <NumInput value={clientBwCost} onChange={setClientBwCost} prefix="$" placeholder="0.015" />
+                        </div>
+                      </div>
+                      {clientBwUnits && (
+                        <div className="mt-2 text-xs text-brand-mint-dark font-medium">
+                          Monthly spend: {fmt((parseFloat(clientBwCost) || 0) * (parseFloat(clientBwUnits) || 0))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-slate-50 rounded-xl p-4">
+                      <p className="text-xs font-semibold text-slate-400 uppercase mb-3">Colour</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">Monthly Units</label>
+                          <NumInput value={clientColorUnits} onChange={setClientColorUnits} placeholder="200" />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-slate-500 mb-1">Cost per Copy ($)</label>
+                          <NumInput value={clientColorCost} onChange={setClientColorCost} prefix="$" placeholder="0.24" />
+                        </div>
+                      </div>
+                      {clientColorUnits && (
+                        <div className="mt-2 text-xs text-brand-mint-dark font-medium">
+                          Monthly spend: {fmt((parseFloat(clientColorCost) || 0) * (parseFloat(clientColorUnits) || 0))}
+                        </div>
+                      )}
+                    </div>
+
+                    {(clientBwUnits || clientColorUnits) && (
+                      <div className="bg-brand-mint-light border border-brand-mint rounded-xl px-4 py-3">
+                        <p className="text-xs font-semibold text-brand-mint-dark mb-2">Total Monthly Print Cost</p>
+                        <p className="text-lg font-bold text-brand-charcoal">
+                          {fmt((parseFloat(clientBwCost) || 0) * (parseFloat(clientBwUnits) || 0) +
+                            (parseFloat(clientColorCost) || 0) * (parseFloat(clientColorUnits) || 0))}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1148,22 +1265,26 @@ export default function Calculator() {
               </div>
             </div>
 
-            {(clientBwUnits || clientColorUnits) && (
+            {(clientPrintMode === 'simple' ? simpleBwUnitsPerMonth > 0 || simpleColorUnitsPerMonth > 0 : clientBwUnits || clientColorUnits) && (
               <div className="mt-3 border border-brand-mint rounded-xl overflow-hidden">
                 <div className="bg-brand-mint-light px-4 py-2 flex items-center gap-1.5">
                   <span className="text-xs font-semibold text-brand-mint-dark">👤 Client Volume Reference</span>
                   <span className="text-xs text-brand-mint">(monthly × 30 months)</span>
                 </div>
                 <div className="px-4 py-3 bg-white space-y-2">
-                  {clientBwUnits && (
+                  {(clientPrintMode === 'simple' ? simpleBwUnitsPerMonth > 0 : !!clientBwUnits) && (
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-500">B&amp;W — {Number(clientBwUnits).toLocaleString()}/mo × 30</span>
+                      <span className="text-slate-500">
+                        B&amp;W — {(clientPrintMode === 'simple' ? simpleBwUnitsPerMonth : Number(clientBwUnits)).toLocaleString()}/mo × 30
+                      </span>
                       <span className="font-semibold text-brand-mint-dark">{clientBwMonthly.toLocaleString()} copies</span>
                     </div>
                   )}
-                  {clientColorUnits && (
+                  {(clientPrintMode === 'simple' ? simpleColorUnitsPerMonth > 0 : !!clientColorUnits) && (
                     <div className="flex justify-between text-sm">
-                      <span className="text-slate-500">Colour — {Number(clientColorUnits).toLocaleString()}/mo × 30</span>
+                      <span className="text-slate-500">
+                        Colour — {(clientPrintMode === 'simple' ? simpleColorUnitsPerMonth : Number(clientColorUnits)).toLocaleString()}/mo × 30
+                      </span>
                       <span className="font-semibold text-brand-mint-dark">{clientColorMonthly.toLocaleString()} copies</span>
                     </div>
                   )}
