@@ -5,9 +5,9 @@ export const MACHINE_CATALOGUE = {
     { name: 'C458', cost: 4500, mono: false, image: 'https://www.photocopiersrus.com/wp-content/uploads/2023/07/C558-2.jpg' },
     { name: 'C558', cost: 4800, mono: false, image: 'https://www.photocopiersrus.com/wp-content/uploads/2023/07/C558-2.jpg' },
     { name: 'C300i', cost: 5000, mono: false, image: 'https://www.konicaminolta.com.au/wp-content/uploads/2025/02/bizhub-301i-DF-714-PC-216-JS-506-studio-picture-Front.png' },
-    { name: 'C360i', cost: 7800, mono: false, image: 'https://www.konicaminolta.com.au/wp-content/uploads/2025/02/bizhub-360i-front-view.avif' },
-    { name: 'C450i', cost: 9300, mono: false, image: 'https://www.konicaminolta.com.au/wp-content/uploads/2025/02/bizhub-450i-front-view.avif' },
-    { name: 'C550i', cost: 10900, mono: false, image: 'https://www.konicaminolta.com.au/wp-content/uploads/2025/02/bizhub-550i-front-view.avif' },
+    { name: 'C360i', cost: 5300, mono: false, image: 'https://www.konicaminolta.com.au/wp-content/uploads/2025/02/bizhub-360i-front-view.avif' },
+    { name: 'C450i', cost: 6500, mono: false, image: 'https://www.konicaminolta.com.au/wp-content/uploads/2025/02/bizhub-450i-front-view.avif' },
+    { name: 'C550i', cost: 7300, mono: false, image: 'https://www.konicaminolta.com.au/wp-content/uploads/2025/02/bizhub-550i-front-view.avif' },
   ],
   fujifilm: [
     { name: 'C3570', cost: 4500, mono: false, image: 'https://asset-fb.fujifilm.com/www/fb/files/styles/600x400/public/2026-02/e6948e8b89b91103f4e99c6db9731c78/bnr_Apeos_4570_3570_07.png' },
