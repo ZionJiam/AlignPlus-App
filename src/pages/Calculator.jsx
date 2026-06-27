@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -12,21 +12,21 @@ const COPIER_PRESETS = {
 function SectionCard({ title, children, collapsible = false, open, onToggle, summary }) {
   if (collapsible) {
     return (
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 mb-5 overflow-hidden">
+      <div className="mb-5 rounded-2xl overflow-hidden">
         <button
           onClick={onToggle}
-          className="w-full flex items-center justify-between px-6 py-4 hover:bg-slate-50 transition-colors"
+          className="w-full flex items-center justify-between py-3 transition-colors"
         >
-          <h2 className="text-base font-semibold text-brand-charcoal">{title}</h2>
+          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest">{title}</h2>
           <div className="flex items-center gap-3">
             {!open && summary && (
               <span className="text-sm font-semibold text-brand-mint-dark">{summary}</span>
             )}
-            <span className="text-slate-400 text-sm">{open ? '▲' : '▼'}</span>
+            <span className="text-slate-300 text-xs">{open ? '▲' : '▼'}</span>
           </div>
         </button>
         {open && (
-          <div className="px-6 pb-6 border-t border-slate-100 pt-4">
+          <div className="pb-2 pt-1">
             {children}
           </div>
         )}
@@ -34,8 +34,8 @@ function SectionCard({ title, children, collapsible = false, open, onToggle, sum
     )
   }
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-5">
-      <h2 className="text-base font-semibold text-brand-charcoal mb-4 pb-2 border-b border-slate-100">
+    <div className="mb-8">
+      <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4 pb-2 border-b border-slate-200">
         {title}
       </h2>
       {children}
@@ -73,7 +73,7 @@ function NumInput({ value, onChange, prefix, placeholder, className = '' }) {
 function ResultRow({ label, value, highlight, sub }) {
   return (
     <div
-      className={`flex justify-between items-center py-2 ${highlight ? 'border-t border-slate-200 mt-1 pt-3' : ''}`}
+      className={`flex justify-between items-center ${highlight ? 'border-t border-slate-200 mt-1 pt-3' : ''}`}
     >
       <span className={`text-sm ${highlight ? 'font-semibold text-slate-800' : 'text-slate-500'}`}>
         {label}
@@ -188,7 +188,8 @@ export default function Calculator() {
 
   // --- Record metadata ---
   const [clientName, setClientName] = useState('')
-  const [editingName, setEditingName] = useState(false)
+  const [showNameModal, setShowNameModal] = useState(id === 'new')
+  const [draftName, setDraftName] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [cleanSnapshot, setCleanSnapshot] = useState(BLANK_SNAPSHOT)
@@ -278,6 +279,17 @@ export default function Calculator() {
   // --- Collapsible sections ---
   const [showGrandTotal, setShowGrandTotal] = useState(false)
   const [showLeasing, setShowLeasing] = useState(false)
+
+  // --- Sticky save bar ---
+  const saveButtonRef = useRef(null)
+  const [saveButtonVisible, setSaveButtonVisible] = useState(true)
+  useEffect(() => {
+    const el = saveButtonRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(([entry]) => setSaveButtonVisible(entry.isIntersecting), { threshold: 0.5 })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   // --- Load record from URL param on mount ---
   const applyData = useCallback((d) => {
@@ -613,11 +625,8 @@ export default function Calculator() {
             onClick={() => setShowClientProfile(false)}
           />
           <div className="relative z-50 w-full max-w-md bg-white shadow-2xl flex flex-col h-full overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 sticky top-0 bg-white">
-              <div>
-                <h2 className="text-base font-bold text-slate-800">Client's Current Setup</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Record existing machine &amp; usage for comparison</p>
-              </div>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white">
+              <h2 className="text-sm font-semibold text-slate-700">Client Setup</h2>
               <button
                 onClick={() => setShowClientProfile(false)}
                 className="text-slate-400 hover:text-slate-600 text-xl leading-none px-2 py-1"
@@ -627,6 +636,18 @@ export default function Calculator() {
             </div>
 
             <div className="p-6 space-y-6">
+              {/* Client Name */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Client Name</label>
+                <input
+                  type="text"
+                  value={clientName}
+                  onChange={e => setClientName(e.target.value)}
+                  placeholder="Enter client name"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-brand-mint"
+                />
+              </div>
+
               {/* Client Machines — multiple */}
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -825,7 +846,7 @@ export default function Calculator() {
                         className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-colors ${clientPrintMode === m.key
                           ? 'bg-brand-charcoal text-white border-brand-charcoal'
                           : 'bg-white text-slate-500 border-slate-200 hover:border-brand-mint hover:text-brand-mint-dark'
-                        }`}
+                          }`}
                       >
                         {m.label}
                       </button>
@@ -946,6 +967,43 @@ export default function Calculator() {
         </div>
       )}
 
+      {/* New proposal name modal */}
+      {showNameModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-8">
+            <h2 className="text-lg font-bold text-slate-800 mb-1">New Proposal</h2>
+            <p className="text-sm text-slate-400 mb-5">Enter the client's name to get started</p>
+            <input
+              autoFocus
+              type="text"
+              value={draftName}
+              onChange={e => setDraftName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && draftName.trim()) { setClientName(draftName.trim()); setShowNameModal(false) }
+                if (e.key === 'Escape') navigate('/calculator')
+              }}
+              placeholder="Client name"
+              className="w-full border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-mint mb-5"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => navigate('/calculator')}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-500 hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { if (draftName.trim()) { setClientName(draftName.trim()); setShowNameModal(false) } }}
+                disabled={!draftName.trim()}
+                className="flex-1 py-2.5 rounded-xl bg-brand-mint text-white text-sm font-semibold hover:bg-brand-mint-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Create Proposal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Back button */}
       <button
         onClick={() => {
@@ -958,52 +1016,25 @@ export default function Calculator() {
       </button>
 
       {/* Page header */}
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          {/* Inline-editable client name */}
-          {editingName ? (
-            <input
-              autoFocus
-              type="text"
-              value={clientName}
-              onChange={e => setClientName(e.target.value)}
-              onBlur={() => setEditingName(false)}
-              onKeyDown={e => { if (e.key === 'Enter') setEditingName(false) }}
-              placeholder="Client name"
-              className="text-2xl font-bold text-slate-800 bg-transparent border-b-2 border-brand-mint outline-none w-64"
-            />
-          ) : (
-            <button
-              onClick={() => setEditingName(true)}
-              className="group flex items-center gap-2"
-            >
-              <h1 className="text-2xl font-bold text-slate-800">
-                {clientName || 'New Proposal'}
-              </h1>
-              <span className="text-slate-300 group-hover:text-brand-mint transition-colors text-sm leading-none">✏️</span>
-            </button>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-slate-800">{clientName || 'Unnamed'}</h1>
+          {isDirty && (
+            <span className="text-xs text-amber-500 font-medium">● Unsaved</span>
           )}
-          <div className="flex items-center gap-2 mt-1">
-            <p className="text-slate-400 text-sm">Leasing Proposal</p>
-            {isDirty && (
-              <span className="text-xs text-amber-500 font-medium">● Unsaved changes</span>
-            )}
-          </div>
         </div>
         <button
           onClick={() => setShowClientProfile(true)}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium shadow-sm border transition-colors ${hasClientProfile
-            ? 'bg-brand-charcoal text-white border-brand-charcoal hover:bg-brand-charcoal-dark'
-            : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-            }`}
+          className="flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-brand-mint-dark transition-colors"
         >
-          <span>👤</span>
-          <span>Client's Current Setup</span>
-          {hasClientProfile && <span className="w-2 h-2 rounded-full bg-white/70 inline-block" />}
+          Edit Client
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+            <path d="M2.695 14.763l-1.262 3.154a.5.5 0 00.65.65l3.155-1.262a4 4 0 001.343-.885L17.5 5.5a2.121 2.121 0 00-3-3L3.58 13.42a4 4 0 00-.885 1.343z" />
+          </svg>
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 pb-24">
         <div>
           {/* 1. Outstanding */}
           <SectionCard title="1. Current Outstanding">
@@ -1049,7 +1080,7 @@ export default function Calculator() {
             ) : (
               /* Manual entry fallback */
               <div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-3">
                   <Field label="Monthly Lease ($)">
                     <NumInput value={monthlyLease} onChange={setMonthlyLease} prefix="$" placeholder="200" />
                   </Field>
@@ -1110,10 +1141,12 @@ export default function Calculator() {
                     )}
                   </div>
                 </div>
-                <Field label="Outstanding Final Payment ($)">
-                  <NumInput value={outstandingFinal} onChange={setOutstandingFinal} prefix="$" placeholder="3000" />
-                </Field>
-                <div className="bg-slate-50 rounded-lg px-4 py-3 mt-2">
+                <div className="mt-4">
+                  <Field label="Outstanding Final Payment ($)">
+                    <NumInput value={outstandingFinal} onChange={setOutstandingFinal} prefix="$" placeholder="3000" />
+                  </Field>
+                </div>
+                <div className="bg-slate-50 rounded-lg py-3 mt-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500">Remaining Lease</span>
                     <span className="font-medium text-slate-700">
@@ -1129,9 +1162,6 @@ export default function Calculator() {
                     <span className="text-brand-mint-dark">{fmt(outstanding)}</span>
                   </div>
                 </div>
-                <p className="text-xs text-slate-400 mt-2">
-                  💡 Fill in <strong>Client's Current Setup</strong> to auto-populate from machine data.
-                </p>
               </div>
             )}
           </SectionCard>
@@ -1162,23 +1192,22 @@ export default function Calculator() {
                 </div>
               </div>
             )}
-            <div className="grid grid-cols-2 gap-2 mb-4">
+            <div className="flex gap-2 mb-4 overflow-x-auto pb-1 -mx-1 px-1">
               {[
-                { key: 'konica', label: 'Konica Minolta', sub: 'Rebuilt' },
-                { key: 'fujifilm', label: 'FujiFilm', sub: 'Rebuilt' },
-                { key: 'fujifilm_new', label: 'FujiFilm', sub: 'Brand New' },
+                { key: 'konica', label: 'KN', sub: 'Rebuilt' },
+                { key: 'fujifilm', label: 'FF', sub: 'Rebuilt' },
+                { key: 'fujifilm_new', label: 'FF', sub: 'Brand New' },
                 { key: 'epson', label: 'Epson', sub: 'Brand New' },
               ].map(b => (
                 <button
                   key={b.key}
                   onClick={() => { setMachineBrand(b.key); setSelectedMachine(null) }}
-                  className={`px-3 py-2 rounded-xl text-sm font-medium transition-colors text-left border ${machineBrand === b.key
+                  className={`flex-shrink-0 px-3 py-2 rounded-xl text-sm font-medium transition-colors text-left border ${machineBrand === b.key
                     ? 'bg-brand-mint text-white border-brand-mint'
                     : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-brand-mint hover:bg-brand-mint-light hover:text-brand-mint-dark'
                     }`}
                 >
-                  <span className="block font-semibold">{b.label}</span>
-                  <span className={`text-xs ${machineBrand === b.key ? 'text-white/70' : 'text-slate-400'}`}>{b.sub}</span>
+                  <span className="font-semibold text-xs">{b.label} <span className={`font-normal ${machineBrand === b.key ? 'text-white/70' : 'text-slate-400'}`}>({b.sub})</span></span>
                 </button>
               ))}
             </div>
@@ -1246,7 +1275,7 @@ export default function Calculator() {
               </Field>
             </div>
 
-            <div className="bg-slate-50 rounded-lg px-4 py-3 mt-2">
+            <div className="bg-slate-50 rounded-lg py-3 mt-2">
               <div className="flex justify-between text-sm">
                 <span className="text-slate-500">B&amp;W Charge</span>
                 <span className="font-medium text-slate-700">
@@ -1507,7 +1536,7 @@ export default function Calculator() {
               )
             })()}
 
-            <Field label="Monthly Repayment ($)" hint="Set manually or apply from Smart Quote above">
+            <Field label="Monthly Repayment ($)">
               <NumInput value={monthlyRepayment} onChange={setMonthlyRepayment} prefix="$" placeholder="300" />
             </Field>
 
@@ -1587,7 +1616,7 @@ export default function Calculator() {
             <div className="flex items-center justify-between mb-4">
               <label className="text-sm font-medium text-slate-600">Residual Value %</label>
               <div className="flex gap-1.5">
-                {[25, 30].map(pct => (
+                {[0, 25, 30].map(pct => (
                   <button
                     key={pct}
                     onClick={() => setResidualPct(pct)}
@@ -1602,7 +1631,7 @@ export default function Calculator() {
               </div>
             </div>
 
-            <div className="bg-slate-50 rounded-xl p-4 space-y-2 mt-4">
+            <div className="bg-slate-50 rounded-xl py-4 space-y-2">
               <ResultRow label="Grand Total Financed (principal)" value={fmt(grandTotalFinanced)} />
               <ResultRow label={`Residual Value — ${residualPct}% of GTF`} value={fmt(residualValue)} />
               <ResultRow label="Grand Total Price (your cost)" value={fmt(grandTotal)} />
@@ -1697,10 +1726,11 @@ export default function Calculator() {
             )}
 
             {/* Save / Update */}
-            <div className="mt-6 flex items-center gap-3">
+            <div ref={saveButtonRef} className="mt-6 flex items-center gap-3">
               <button
                 onClick={saveRecord}
-                className="flex-1 py-3 rounded-xl bg-brand-mint hover:bg-brand-mint-dark text-white font-semibold text-sm transition-colors shadow-sm"
+                disabled={saving}
+                className="flex-1 py-3 rounded-xl bg-brand-mint hover:bg-brand-mint-dark text-white font-semibold text-sm transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {id && id !== 'new' ? 'Update Proposal' : 'Save Proposal'}
               </button>
@@ -1714,6 +1744,32 @@ export default function Calculator() {
 
         </div>
       </div>
+
+      {/* Sticky save bar — appears when original button scrolls out of view */}
+      <div className={`fixed bottom-0 left-0 right-0 z-30 bg-white/90 backdrop-blur-sm border-t border-slate-200 px-4 py-3 flex items-center gap-3 shadow-lg transition-all duration-300 ${saveButtonVisible ? 'translate-y-full opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'}`}>
+        <button
+          onClick={saveRecord}
+          disabled={saving}
+          className="flex-1 py-3 rounded-xl bg-brand-mint hover:bg-brand-mint-dark text-white font-semibold text-sm transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {id && id !== 'new' ? 'Update Proposal' : 'Save Proposal'}
+        </button>
+        {saveMsg && (
+          <span className={`text-sm font-medium ${saveMsg.startsWith('Saved') ? 'text-brand-mint-dark' : 'text-red-500'}`}>
+            {saveMsg}
+          </span>
+        )}
+      </div>
+
+      {/* Saving overlay */}
+      {saving && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-[1px]">
+          <div className="bg-white rounded-2xl shadow-xl px-8 py-6 flex items-center gap-4">
+            <div className="w-6 h-6 border-[3px] border-brand-mint border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm font-semibold text-slate-700">Saving…</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -75,7 +75,7 @@ export default function CalculatorList() {
         </div>
         <button
           onClick={() => navigate('/calculator/new')}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand-mint hover:bg-brand-mint-dark text-white text-sm font-semibold transition-colors shadow-sm"
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand-mint hover:bg-brand-mint-dark text-white text-sm font-semibold transition-colors"
         >
           <span className="text-base leading-none">+</span>
           New Proposal
@@ -88,9 +88,7 @@ export default function CalculatorList() {
           <div className="w-8 h-8 border-4 border-brand-mint border-t-transparent rounded-full animate-spin" />
         </div>
       ) : records.length === 0 ? (
-        /* Empty state */
         <div className="flex flex-col items-center justify-center py-24 text-center">
-          <div className="text-5xl mb-4">🧮</div>
           <h2 className="text-lg font-semibold text-slate-700 mb-2">No proposals yet</h2>
           <p className="text-slate-400 text-sm mb-6 max-w-xs">
             Create your first calculator proposal to start tracking leasing deals for your clients.
@@ -113,14 +111,14 @@ export default function CalculatorList() {
               <div
                 key={r.id}
                 onClick={() => navigate(`/calculator/${r.id}`)}
-                className="group bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-brand-mint transition-all cursor-pointer overflow-hidden"
+                className="group bg-white rounded-2xl hover:bg-brand-mint-light transition-colors cursor-pointer overflow-hidden"
               >
                 {/* Accent bar */}
-                <div className={`h-1.5 w-full ${profit != null ? (profit >= 0 ? 'bg-brand-mint' : 'bg-red-400') : 'bg-brand-mint'}`} />
+                <div className={`h-1 w-full ${profit != null ? (profit >= 0 ? 'bg-brand-mint' : 'bg-red-400') : 'bg-slate-200'}`} />
 
                 <div className="p-5">
                   {/* Client name + delete */}
-                  <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-start justify-between mb-4">
                     <div>
                       <h3 className="text-base font-bold text-slate-800 group-hover:text-brand-mint-dark transition-colors">
                         {r.client_name}
@@ -139,19 +137,18 @@ export default function CalculatorList() {
                   </div>
 
                   {/* Profit */}
-                  {profit != null ? (
-                    <div className={`flex items-center justify-between rounded-xl px-3 py-2 ${profit >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-                      <span className="text-xs text-slate-400">Profit</span>
-                      <span className={`text-sm font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>{fmt(profit)}</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between rounded-xl px-3 py-2 bg-slate-50">
-                      <span className="text-xs text-slate-400">Profit</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400">Profit</span>
+                    {profit != null ? (
+                      <span className={`text-sm font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        {fmt(profit)}
+                      </span>
+                    ) : (
                       <span className="text-xs text-slate-300">—</span>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
-                  <div className="mt-4 text-brand-mint-dark text-xs font-semibold group-hover:underline">
+                  <div className="mt-4 text-brand-mint-dark text-xs font-semibold">
                     Open →
                   </div>
                 </div>
